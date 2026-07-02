@@ -1357,9 +1357,6 @@ export const zh_CN: TranslationMap = {
     },
     selectors: {
       agentFilter: "按代理筛选会话",
-      allAgents: "所有代理",
-      statusFilter: "会话状态",
-      filter: "筛选",
       session: "聊天会话",
       sessionSearch: "搜索会话",
       clearSessionSearch: "清除会话搜索",

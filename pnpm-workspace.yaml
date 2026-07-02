@@ -150,3 +150,5 @@ packageExtensions:
       sharp:
         optional: true
 
+patchedDependencies:
+  "@agentclientprotocol/claude-agent-acp@0.39.0": patches/@agentclientprotocol__claude-agent-acp@0.39.0.patch

@@ -809,13 +809,15 @@ export async function createChatSession(
   const nextSessionKey = await createSessionAndRefresh(
     state as unknown as Parameters<typeof createSessionAndRefresh>[0],
     {
-      agentId: "main",
+      agentId:
+        scopedAgentParamsForSession(state, previousSessionKey).agentId ??
+        resolveAgentIdFromSessionKey(previousSessionKey),
       parentSessionKey,
       emitCommandHooks: parentSessionKey !== undefined ? true : undefined,
     },
     {
       ...createChatSessionsLoadOverrides(state),
-      agentId: "main",
+      ...scopedAgentListParamsForSession(state, previousSessionKey),
     },
   );
   if (

@@ -61,10 +61,6 @@
     grid-area: agent;
   }
 
-  .chat-session-picker__status-filters {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .chat-controls__session-picker {
     grid-area: session;
   }
@@ -1056,12 +1052,6 @@
     padding: 2px 6px;
   }
 
-  .sessions-table .session-status-recent {
-    max-width: 72px;
-    gap: 4px;
-    padding: 2px 6px;
-  }
-
   .sessions-table .session-goal-chip {
     grid-template-columns: minmax(0, 1fr);
     max-width: 72px;
@@ -1086,11 +1076,5 @@
 
   .session-key-cell {
     max-width: 140px;
-  }
-}
-
-@media (max-width: 640px) {
-  .chat-session-picker__status-filters {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

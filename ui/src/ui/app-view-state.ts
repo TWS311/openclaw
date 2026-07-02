@@ -138,17 +138,6 @@ export type AppViewState = {
   chatSessionPickerSurface: "desktop" | "mobile" | "sidebar" | null;
   chatSessionPickerQuery: string;
   chatSessionPickerAppliedQuery: string;
-  chatSessionPickerAgentFilterId: string;
-  chatSessionPickerStatusFilter:
-    | "all"
-    | "live"
-    | "idle"
-    | "done"
-    | "failed"
-    | "killed"
-    | "timeout"
-    | "unknown";
-  chatSessionPickerStatusFilterOpen: boolean;
   chatSessionPickerLoading: boolean;
   chatSessionPickerError: string | null;
   chatSessionPickerResult: SessionsListResult | null;

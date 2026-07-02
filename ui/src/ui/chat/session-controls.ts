@@ -29,7 +29,6 @@ import {
   normalizeAgentId,
   parseAgentSessionKey,
 } from "../session-key.ts";
-import { isSessionRunActive } from "../session-run-state.ts";
 import { sessionModelMatchesDefaults } from "../session-model-defaults.ts";
 import { normalizeLowercaseStringOrEmpty, normalizeOptionalString } from "../string-coerce.ts";
 import {
@@ -59,18 +58,6 @@ type ChatInlineSelectOption = {
   label: string;
 };
 
-type ChatSessionPickerAgentFilter = string;
-
-type ChatSessionPickerStatusFilter =
-  | "all"
-  | "live"
-  | "idle"
-  | "done"
-  | "failed"
-  | "killed"
-  | "timeout"
-  | "unknown";
-
 const FAST_MODE_PROVIDER_IDS = new Set([
   "anthropic",
   "minimax",
@@ -79,18 +66,6 @@ const FAST_MODE_PROVIDER_IDS = new Set([
   "openrouter",
   "xai",
 ]);
-
-const CHAT_SESSION_AGENT_FILTER_ALL: ChatSessionPickerAgentFilter = "__all_agents__";
-const CHAT_SESSION_PICKER_STATUS_FILTER_OPTIONS: ChatSessionPickerStatusFilter[] = [
-  "all",
-  "live",
-  "idle",
-  "done",
-  "failed",
-  "killed",
-  "timeout",
-  "unknown",
-];
 
 const CHAT_SESSION_PICKER_SEARCH_DEBOUNCE_MS = 300;
 const chatSessionPickerSearchControllers = new WeakMap<
@@ -243,7 +218,6 @@ function createChatSessionPickerRequestSignature(options: {
   append?: boolean;
   offset?: number;
   query: string;
-  agentFilter?: string;
 }) {
   return [
     options.query,
@@ -251,7 +225,6 @@ function createChatSessionPickerRequestSignature(options: {
       ? Math.max(0, Math.floor(options.offset))
       : 0,
     options.append === true ? "append" : "replace",
-    options.agentFilter ?? CHAT_SESSION_AGENT_FILTER_ALL,
   ].join("\n");
 }
 
@@ -283,7 +256,6 @@ function closeChatSessionPicker(state: AppViewState) {
   clearChatSessionPickerSearchTimer(state);
   state.chatSessionPickerOpen = false;
   state.chatSessionPickerSurface = null;
-  state.chatSessionPickerStatusFilterOpen = false;
   requestHostUpdate(state);
 }
 
@@ -297,7 +269,6 @@ export function resetChatSessionPickerState(state: AppViewState) {
   state.chatSessionPickerLoading = false;
   state.chatSessionPickerError = null;
   state.chatSessionPickerResult = null;
-  state.chatSessionPickerStatusFilterOpen = false;
 }
 
 function toggleChatSessionPicker(state: AppViewState, surface: ChatSessionSelectSurface) {
@@ -316,15 +287,25 @@ function createChatSessionPickerRequestParams(
     search: options.query,
     offset: options.offset,
   });
-  const pickerAgentFilter = resolveChatSessionPickerAgentFilterId(state);
   const params: Record<string, unknown> = {
     includeGlobal: overrides.includeGlobal,
     includeUnknown: overrides.includeUnknown,
     configuredAgentsOnly: overrides.configuredAgentsOnly,
     limit: overrides.limit,
   };
-  if (pickerAgentFilter !== CHAT_SESSION_AGENT_FILTER_ALL) {
-    params.agentId = pickerAgentFilter;
+  const activeAgentSession = parseAgentSessionKey(state.sessionKey);
+  const activeSessionRow = state.sessionsResult?.sessions.find(
+    (row) => row.key === state.sessionKey,
+  );
+  const isGlobalScopeSession =
+    activeSessionRow?.kind === "global" ||
+    activeSessionRow?.kind === "unknown" ||
+    state.sessionKey === "global" ||
+    state.sessionKey === "unknown";
+  if (activeAgentSession || !isGlobalScopeSession) {
+    params.agentId = normalizeAgentId(
+      activeAgentSession?.agentId ?? state.agentsList?.defaultId ?? "main",
+    );
   }
   const offset =
     typeof overrides.offset === "number" && Number.isFinite(overrides.offset)
@@ -338,103 +319,6 @@ function createChatSessionPickerRequestParams(
     params.search = search;
   }
   return params;
-}
-
-function resolveChatSessionPickerAgentFilterId(state: AppViewState): string {
-  const requested = normalizeAgentId(state.chatSessionPickerAgentFilterId);
-  if (requested === CHAT_SESSION_AGENT_FILTER_ALL) {
-    return requested;
-  }
-  return requested || resolveChatAgentFilterId(state, state.sessionKey);
-}
-
-function resolveChatSessionPickerStatusFilterLabel(
-  filter: ChatSessionPickerStatusFilter,
-): string {
-  switch (filter) {
-    case "all":
-      return t("sessionsView.showAll");
-    case "live":
-      return t("sessionsView.statusLive");
-    case "idle":
-      return t("sessionsView.statusIdle");
-    case "done":
-      return t("sessionsView.statusDone");
-    case "failed":
-      return t("sessionsView.statusFailed");
-    case "killed":
-      return t("sessionsView.statusKilled");
-    case "timeout":
-      return t("sessionsView.statusTimeout");
-    case "unknown":
-      return t("sessionsView.statusUnknown");
-    default:
-      return t("sessionsView.showAll");
-  }
-}
-
-function resolveSessionPickerStatus(
-  row: SessionsListResult["sessions"][number],
-): ChatSessionPickerStatusFilter {
-  if (isSessionRunActive(row)) {
-    return "live";
-  }
-  if (row.status === "running" && row.hasActiveRun === false) {
-    return "idle";
-  }
-  if (row.status === "done") {
-    return "done";
-  }
-  if (row.status === "failed") {
-    return "failed";
-  }
-  if (row.status === "killed") {
-    return "killed";
-  }
-  if (row.status === "timeout") {
-    return "timeout";
-  }
-  if (row.hasActiveRun === false) {
-    return "idle";
-  }
-  return "unknown";
-}
-
-function toggleChatSessionPickerStatusFilter(state: AppViewState) {
-  state.chatSessionPickerStatusFilterOpen = !state.chatSessionPickerStatusFilterOpen;
-  requestHostUpdate(state);
-}
-
-function setChatSessionPickerStatusFilter(
-  state: AppViewState,
-  nextFilter: ChatSessionPickerStatusFilter,
-) {
-  if (state.chatSessionPickerStatusFilter === nextFilter) {
-    state.chatSessionPickerStatusFilterOpen = false;
-    requestHostUpdate(state);
-    return;
-  }
-  state.chatSessionPickerStatusFilter = nextFilter;
-  state.chatSessionPickerStatusFilterOpen = false;
-  requestHostUpdate(state);
-}
-
-function setChatSessionPickerAgentFilter(state: AppViewState, nextAgentFilterId: string) {
-  const nextFilterId = normalizeAgentId(nextAgentFilterId);
-  if (nextFilterId === resolveChatSessionPickerAgentFilterId(state)) {
-    return;
-  }
-  state.chatSessionPickerAgentFilterId = nextFilterId;
-  state.chatSessionPickerError = null;
-  state.chatSessionPickerLoading = false;
-  state.chatSessionPickerResult = null;
-  invalidateChatSessionPickerSearchRequests(state);
-  clearChatSessionPickerSearchTimer(state);
-  state.chatSessionPickerAppliedQuery = normalizeOptionalString(state.chatSessionPickerQuery) ?? "";
-  requestHostUpdate(state);
-  if (state.chatSessionPickerOpen) {
-    void loadChatSessionPickerPage(state, { query: state.chatSessionPickerAppliedQuery });
-  }
 }
 
 function projectChatSessionPickerResult(
@@ -481,14 +365,12 @@ async function loadChatSessionPickerPage(
     return null;
   }
   const query = normalizeOptionalString(options.query ?? state.chatSessionPickerAppliedQuery) ?? "";
-  const agentFilter = resolveChatSessionPickerAgentFilterId(state);
   const requestId = beginChatSessionPickerSearchRequest(
     state,
     createChatSessionPickerRequestSignature({
       append: options.append,
       offset: options.offset,
       query,
-      agentFilter,
     }),
   );
   if (requestId === null) {
@@ -732,8 +614,6 @@ function renderChatSessionPickerPopover(
   const normalizedQuery = normalizeOptionalString(state.chatSessionPickerQuery) ?? "";
   const searchPending = normalizedQuery !== state.chatSessionPickerAppliedQuery;
   const loadMoreDisabled = controlsDisabled || state.chatSessionPickerLoading || searchPending;
-  const statusFilter = state.chatSessionPickerStatusFilter ?? "all";
-  const statusFilterPanelOpen = state.chatSessionPickerStatusFilterOpen;
   const hasQuery =
     state.chatSessionPickerQuery.trim() !== "" || state.chatSessionPickerAppliedQuery.trim() !== "";
   const loadMoreOffset = resolveNextChatSessionOffset(result);
@@ -808,46 +688,6 @@ function renderChatSessionPickerPopover(
               ${icons.x}
             </button>`
           : ""}
-        <button
-          class="btn btn--ghost btn--icon chat-session-picker__icon-button chat-session-picker__filter-toggle"
-          data-chat-session-search-filter="true"
-          type="button"
-          title=${t("chat.selectors.statusFilter")}
-          aria-label=${t("chat.selectors.statusFilter")}
-          aria-expanded=${statusFilterPanelOpen ? "true" : "false"}
-          ?disabled=${controlsDisabled}
-          @click=${() => toggleChatSessionPickerStatusFilter(state)}
-        >
-          ${icons.filter}
-        </button>
-      </div>
-      <div
-        class="chat-session-picker__status-filters ${statusFilterPanelOpen
-          ? "chat-session-picker__status-filters--open"
-          : ""}"
-      >
-        ${repeat(
-          CHAT_SESSION_PICKER_STATUS_FILTER_OPTIONS,
-          (entry) => entry,
-          (entry) => {
-            const active = entry === statusFilter;
-            return html`
-              <button
-                class="btn btn--ghost btn--sm chat-session-picker__status-filter-option ${
-                  active ? "chat-session-picker__status-filter-option--selected" : ""
-                }"
-                type="button"
-                data-chat-session-search-filter-option="true"
-                data-session-status-filter=${entry}
-                aria-pressed=${active ? "true" : "false"}
-                @click=${() =>
-                  setChatSessionPickerStatusFilter(state, entry as ChatSessionPickerStatusFilter)}
-              >
-                ${resolveChatSessionPickerStatusFilterLabel(entry as ChatSessionPickerStatusFilter)}
-              </button>
-            `;
-          },
-        )}
       </div>
       ${state.chatSessionPickerError
         ? html`<div class="chat-session-picker__status" role="alert">
@@ -971,12 +811,12 @@ export function renderChatQuotaPill(state: AppViewState) {
 function renderChatAgentSelect(
   state: AppViewState,
   onSwitchSession: ChatSessionSwitchHandler,
-  options = resolveChatAgentFilterOptions(state, { includeAll: true }),
+  options = resolveChatAgentFilterOptions(state),
 ) {
   if (options.length <= 1) {
     return "";
   }
-  const activeAgentId = resolveChatSessionPickerAgentFilterId(state);
+  const activeAgentId = resolveChatAgentFilterId(state, state.sessionKey);
   const selectedLabel = options.find((entry) => entry.id === activeAgentId)?.label ?? activeAgentId;
   return html`
     <label class="field chat-controls__session chat-controls__agent">
@@ -989,10 +829,6 @@ function renderChatAgentSelect(
         @change=${(e: Event) => {
           const nextAgentId = normalizeAgentId((e.target as HTMLSelectElement).value);
           if (nextAgentId === activeAgentId) {
-            return;
-          }
-          setChatSessionPickerAgentFilter(state, nextAgentId);
-          if (nextAgentId === CHAT_SESSION_AGENT_FILTER_ALL) {
             return;
           }
           onSwitchSession(state, resolvePreferredSessionForAgent(state, nextAgentId));
@@ -1733,32 +1569,20 @@ export function resolvePreferredSessionForAgent(state: AppViewState, agentId: st
   return buildAgentMainSessionKey({ agentId: normalizedAgentId });
 }
 
-export function resolveChatAgentFilterOptions(
-  state: AppViewState,
-  options: { includeAll?: boolean } = {},
-): ChatAgentFilterOption[] {
-  const { includeAll = false } = options;
+export function resolveChatAgentFilterOptions(state: AppViewState): ChatAgentFilterOption[] {
   const seen = new Set<string>();
-  const selectOptions: ChatAgentFilterOption[] = [];
+  const options: ChatAgentFilterOption[] = [];
   const add = (agentId: string) => {
     const normalized = normalizeAgentId(agentId);
     if (seen.has(normalized)) {
       return;
     }
     seen.add(normalized);
-    const label =
-      normalized === CHAT_SESSION_AGENT_FILTER_ALL
-        ? t("chat.selectors.allAgents")
-        : resolveAgentGroupLabel(state, normalized);
-    selectOptions.push({
+    options.push({
       id: normalized,
-      label,
+      label: resolveAgentGroupLabel(state, normalized),
     });
   };
-
-  if (includeAll) {
-    add(CHAT_SESSION_AGENT_FILTER_ALL);
-  }
 
   add(resolveChatAgentFilterId(state, state.sessionKey));
   add(state.agentsList?.defaultId ?? "main");
@@ -1772,7 +1596,7 @@ export function resolveChatAgentFilterOptions(
     }
   }
 
-  return selectOptions;
+  return options;
 }
 
 export function resolveSessionOptionGroups(
@@ -1782,9 +1606,7 @@ export function resolveSessionOptionGroups(
 ): SessionOptionGroup[] {
   const rows = sessions?.sessions ?? [];
   const hideCron = state.sessionsHideCron ?? true;
-  const activeAgentId = resolveChatSessionPickerAgentFilterId(state);
-  const includeAllAgents = activeAgentId === CHAT_SESSION_AGENT_FILTER_ALL;
-  const activeStatusFilter = state.chatSessionPickerStatusFilter ?? "all";
+  const activeAgentId = resolveChatAgentFilterId(state, sessionKey);
   const defaultAgentId = normalizeAgentId(state.agentsList?.defaultId ?? "main");
   const byKey = new Map<string, SessionsListResult["sessions"][number]>();
   for (const row of rows) {
@@ -1830,14 +1652,7 @@ export function resolveSessionOptionGroups(
   };
 
   for (const row of rows) {
-    const sessionStatus = resolveSessionPickerStatus(row);
-    if (activeStatusFilter !== "all" && sessionStatus !== activeStatusFilter) {
-      if (row.key !== sessionKey) {
-        continue;
-      }
-    }
     if (
-      !includeAllAgents &&
       !isSessionKeyTiedToAgent(row.key, activeAgentId, defaultAgentId) &&
       row.key !== sessionKey
     ) {
