@@ -2722,6 +2722,18 @@
   min-width: 0;
 }
 
+.session-key-cell--editable {
+  cursor: pointer;
+}
+
+.session-key-name-link {
+  display: inline-block;
+}
+
+.session-key-name-link:hover {
+  text-decoration: underline;
+}
+
 .session-key-cell .session-link,
 .session-key-display-name {
   min-width: 0;
@@ -2732,6 +2744,15 @@
 
 .session-key-display-name {
   font-size: 12px; /* was 11px */
+}
+
+.session-label-input {
+  width: 100%;
+  max-width: 140px;
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
 /* ===========================================
@@ -2889,6 +2910,20 @@
   background: var(--bg-hover);
 }
 
+.data-table tbody tr.session-data-row--active > td {
+  background: color-mix(in srgb, var(--accent-subtle) 36%, transparent);
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+.data-table tbody tr.session-data-row--recent > td {
+  background: color-mix(in srgb, var(--bg-hover) 62%, transparent);
+}
+
+.data-table tbody tr.session-data-row--active:hover > td,
+.data-table tbody tr.session-data-row--recent:hover > td {
+  background: color-mix(in srgb, var(--bg-hover) 86%, transparent);
+}
+
 .session-data-row--expandable {
   cursor: pointer;
 }
@@ -3009,6 +3044,40 @@
 
 .session-status-badge--muted {
   color: var(--muted);
+}
+
+.session-status-recent {
+  display: inline-flex;
+  align-items: center;
+  max-width: 116px;
+  gap: 5px;
+  box-sizing: border-box;
+  padding: 3px 8px;
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+  background: color-mix(in srgb, var(--warn) 14%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--warn) 36%, var(--border));
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.session-status-recent__dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.74;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+.session-status-recent__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .session-goal-chip {

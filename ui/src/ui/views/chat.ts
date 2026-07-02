@@ -1829,6 +1829,43 @@ function exportMarkdown(props: ChatProps): void {
   exportChatMarkdown(props.messages, props.assistantName);
 }
 
+function renderHeaderAgentSelect(props: ChatProps) {
+  const agents = props.agentsList?.agents ?? [];
+  if (agents.length <= 1) {
+    return nothing;
+  }
+  const selectedLabel =
+    agents.find((agent) => agent.id === props.currentAgentId)?.name ?? props.currentAgentId;
+
+  return html`
+    <div class="chat-controls">
+      <label class="field chat-controls__agent">
+        <select
+          data-chat-header-agent-select="true"
+          aria-label=${t("chat.selectors.agentFilter")}
+          title=${selectedLabel}
+          .value=${props.currentAgentId}
+          ?disabled=${!props.connected || props.messages.length > 0}
+          @change=${(e: Event) => {
+            if (!props.connected || props.messages.length > 0) {
+              return;
+            }
+            const nextAgentId = (e.target as HTMLSelectElement).value;
+            if (nextAgentId === props.currentAgentId) {
+              return;
+            }
+            props.onAgentChange(nextAgentId);
+          }}
+        >
+          ${agents.map(
+            (agent) => html`<option value=${agent.id}>${agent.name ?? agent.id}</option>`,
+          )}
+        </select>
+      </label>
+    </div>
+  `;
+}
+
 function renderSearchBar(requestUpdate: () => void): TemplateResult | typeof nothing {
   if (!vs.searchOpen) {
     return nothing;
@@ -2942,6 +2979,7 @@ export function renderChat(props: ChatProps) {
             `
           : nothing
       }
+      ${renderHeaderAgentSelect(props)}
       ${renderSearchBar(requestUpdate)} ${renderPinnedSection(props, pinned, requestUpdate)}
 
       <div

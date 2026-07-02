@@ -2070,6 +2070,45 @@
   height: 16px;
 }
 
+.chat-session-picker__status-filters {
+  overflow: hidden;
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition:
+    max-height var(--duration-fast) ease,
+    opacity var(--duration-fast) ease,
+    transform var(--duration-fast) ease,
+    margin-top var(--duration-fast) ease;
+}
+
+.chat-session-picker__status-filters--open {
+  max-height: 220px;
+  margin-top: 8px;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.chat-session-picker__status-filter-option {
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
+}
+
+.chat-session-picker__status-filter-option--selected {
+  background: color-mix(in srgb, var(--accent-subtle) 72%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+}
+
+.chat-session-picker__status-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .chat-session-picker__list {
   display: flex;
   flex-direction: column;

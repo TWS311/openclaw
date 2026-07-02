@@ -305,6 +305,17 @@ export class OpenClawApp extends LitElement {
   @state() chatSessionPickerSurface: "desktop" | "mobile" | "sidebar" | null = null;
   @state() chatSessionPickerQuery = "";
   @state() chatSessionPickerAppliedQuery = "";
+  @state() chatSessionPickerAgentFilterId = "__all_agents__";
+  @state() chatSessionPickerStatusFilter:
+    | "all"
+    | "live"
+    | "idle"
+    | "done"
+    | "failed"
+    | "killed"
+    | "timeout"
+    | "unknown" = "all";
+  @state() chatSessionPickerStatusFilterOpen = false;
   @state() chatSessionPickerLoading = false;
   @state() chatSessionPickerError: string | null = null;
   @state() chatSessionPickerResult: SessionsListResult | null = null;
@@ -767,6 +778,7 @@ export class OpenClawApp extends LitElement {
       e.preventDefault();
       this.chatSessionPickerOpen = false;
       this.chatSessionPickerSurface = null;
+      this.chatSessionPickerStatusFilterOpen = false;
       return;
     }
     const openComposerDetails = this.querySelectorAll<HTMLDetailsElement>(
@@ -816,6 +828,7 @@ export class OpenClawApp extends LitElement {
       if (!insidePicker) {
         this.chatSessionPickerOpen = false;
         this.chatSessionPickerSurface = null;
+        this.chatSessionPickerStatusFilterOpen = false;
       }
     }
     if (!this.chatMobileControlsOpen) {
@@ -1033,6 +1046,7 @@ export class OpenClawApp extends LitElement {
     if (this.chatSessionPickerSurface === "mobile") {
       this.chatSessionPickerOpen = false;
       this.chatSessionPickerSurface = null;
+      this.chatSessionPickerStatusFilterOpen = false;
     }
     this.chatMobileControlsTrigger = null;
     if (!(focusTarget instanceof HTMLElement) || !focusTarget.isConnected) {

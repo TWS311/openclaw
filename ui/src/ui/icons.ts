@@ -197,6 +197,14 @@ export const icons = {
       <path d="m21 21-4.3-4.3" />
     </svg>
   `,
+  filter: html`
+    <svg viewBox="0 0 24 24">
+      <path d="M3 4h18" />
+      <path d="M6 9h12" />
+      <path d="M9 14h6" />
+      <path d="M8 19h8" />
+    </svg>
+  `,
   brain: html`
     <svg viewBox="0 0 24 24">
       <path

@@ -217,6 +217,9 @@ function controlUiServiceWorkerBuildIdPlugin(buildId: string): Plugin {
       const placeholder = '"__OPENCLAW_CONTROL_UI_BUILD_ID__"';
       const updated = source.replace(placeholder, JSON.stringify(buildId));
       if (updated === source) {
+        if (source.includes(JSON.stringify(buildId))) {
+          return;
+        }
         throw new Error(`Control UI service worker build id placeholder missing in ${swPath}`);
       }
       fs.mkdirSync(outDir, { recursive: true });

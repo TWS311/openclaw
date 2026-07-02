@@ -1063,6 +1063,15 @@ function resolveAssistantAvatarUrl(state: AppViewState): string | undefined {
   return undefined;
 }
 
+function buildSessionAgentKey(sessionKey: string | null | undefined, agentId: string): string {
+  const nextAgentId = normalizeAgentId(agentId);
+  const parsed = parseAgentSessionKey(sessionKey);
+  if (!parsed) {
+    return buildAgentMainSessionKey({ agentId: nextAgentId });
+  }
+  return `agent:${nextAgentId}:${parsed.rest}`;
+}
+
 function resolveAssistantAvatarOverride(config: unknown): string | null {
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     return null;
@@ -3901,7 +3910,17 @@ export function renderApp(state: AppViewState) {
                   currentAgentId: chatAgentId,
                   fullMessageAgentId: scopedAgentParamsForSession(state, state.sessionKey).agentId,
                   onAgentChange: (agentId: string) => {
-                    switchChatSession(state, buildAgentMainSessionKey({ agentId }));
+                    const sessionKey = state.sessionKey;
+                    const messageCache =
+                      state.chatMessagesBySession?.get(sessionKey) ?? state.chatMessages;
+                    if (messageCache.length > 0) {
+                      return;
+                    }
+                    const nextSessionKey = buildSessionAgentKey(sessionKey, agentId);
+                    if (nextSessionKey === sessionKey) {
+                      return;
+                    }
+                    switchChatSession(state, nextSessionKey);
                   },
                   onNavigateToAgent: () => {
                     state.agentsSelectedId = resolvedAgentId;

@@ -813,7 +813,7 @@ describe("createChatSession", () => {
     expect(createSessionAndRefreshMock).toHaveBeenCalledWith(
       state,
       {
-        agentId: "ops",
+        agentId: "main",
         parentSessionKey: "agent:ops:main",
         emitCommandHooks: true,
       },
@@ -823,7 +823,7 @@ describe("createChatSession", () => {
         includeGlobal: true,
         includeUnknown: true,
         showArchived: false,
-        agentId: "ops",
+        agentId: "main",
       },
     );
     expect(state.sessionKey).toBe("agent:ops:dashboard:new-chat");
@@ -857,7 +857,7 @@ describe("createChatSession", () => {
     expect(createSessionAndRefreshMock).toHaveBeenCalledWith(
       state,
       {
-        agentId: "ops",
+        agentId: "main",
         parentSessionKey: "agent:ops:main",
         emitCommandHooks: true,
       },
@@ -867,7 +867,7 @@ describe("createChatSession", () => {
         includeGlobal: true,
         includeUnknown: true,
         showArchived: false,
-        agentId: "ops",
+        agentId: "main",
       },
     );
   });
@@ -895,7 +895,7 @@ describe("createChatSession", () => {
     expect(createSessionAndRefreshMock).toHaveBeenCalledWith(
       state,
       {
-        agentId: "work",
+        agentId: "main",
         parentSessionKey: "global",
         emitCommandHooks: true,
       },
@@ -905,7 +905,7 @@ describe("createChatSession", () => {
         includeGlobal: true,
         includeUnknown: true,
         showArchived: false,
-        agentId: "work",
+        agentId: "main",
       },
     );
     expect(state.sessionKey).toBe("agent:work:dashboard:new-chat");
@@ -943,6 +943,7 @@ describe("createChatSession", () => {
         includeGlobal: true,
         includeUnknown: true,
         showArchived: false,
+        agentId: "main",
       },
     );
     expect(state.sessionKey).toBe("agent:main:dashboard:new-chat");

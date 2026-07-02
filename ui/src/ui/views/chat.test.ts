@@ -947,6 +947,67 @@ describe("chat goal status", () => {
   });
 });
 
+describe("chat header agent selector", () => {
+  it("renders the header agent selector for empty sessions and allows switching", () => {
+    const onAgentChange = vi.fn();
+    const container = renderChatView({
+      messages: [],
+      currentAgentId: "main",
+      agentsList: {
+        defaultId: "main",
+        mainKey: "agent:main:main",
+        scope: "all",
+        agents: [
+          { id: "main", name: "Main Agent" },
+          { id: "ops", name: "Ops Agent" },
+        ],
+      },
+      onAgentChange,
+    });
+
+    const agentSelect = container.querySelector<HTMLSelectElement>(
+      'select[data-chat-header-agent-select="true"]',
+    );
+    expect(agentSelect).toBeInstanceOf(HTMLSelectElement);
+    expect(agentSelect?.value).toBe("main");
+    expect(agentSelect?.disabled).toBe(false);
+
+    agentSelect!.value = "ops";
+    agentSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(onAgentChange).toHaveBeenCalledWith("ops");
+  });
+
+  it("locks the header agent selector after session messages exist", () => {
+    const onAgentChange = vi.fn();
+    const container = renderChatView({
+      messages: [{ role: "assistant", content: "Started" }],
+      currentAgentId: "main",
+      agentsList: {
+        defaultId: "main",
+        mainKey: "agent:main:main",
+        scope: "all",
+        agents: [
+          { id: "main", name: "Main Agent" },
+          { id: "ops", name: "Ops Agent" },
+        ],
+      },
+      onAgentChange,
+    });
+
+    const agentSelect = container.querySelector<HTMLSelectElement>(
+      'select[data-chat-header-agent-select="true"]',
+    );
+    expect(agentSelect).toBeInstanceOf(HTMLSelectElement);
+    expect(agentSelect?.disabled).toBe(true);
+
+    agentSelect!.value = "ops";
+    agentSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(onAgentChange).not.toHaveBeenCalled();
+  });
+});
+
 describe("chat composer workbench", () => {
   it("renders session controls in the composer and workspace files in the expanded rail", () => {
     const onToggleCollapsed = vi.fn();
