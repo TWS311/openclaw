@@ -431,11 +431,12 @@ describe("sessions view", () => {
 
   it("shows agent identity name and emoji for matching session keys", async () => {
     const container = document.createElement("div");
+    const sessionKey = "agent:data-expert:dingtalk:cidzg6sF43NZMy52Rnk8EN";
     render(
       renderSessions({
         ...buildProps(
           buildResult({
-            key: "agent:data-expert:dingtalk:cidzg6sF43NZMy52Rnk8EN",
+            key: sessionKey,
             kind: "direct",
             updatedAt: Date.now(),
           }),
@@ -455,7 +456,9 @@ describe("sessions view", () => {
 
     const keyCell = container.querySelector(".session-key-cell");
     expect(keyCell?.textContent?.trim()).toBe("📊 Data Expert (dingtalk)");
-    expect(keyCell?.getAttribute("title")).toBe("📊 Data Expert (dingtalk)");
+    expect(keyCell?.getAttribute("title")).toBe(
+      `${sessionKey} · 📊 Data Expert (dingtalk)`,
+    );
   });
 
   it("keeps raw keys when identity data is unavailable", async () => {
@@ -950,7 +953,7 @@ describe("sessions view", () => {
       "Session details",
     );
     expect(details?.querySelector(".session-details-panel__title")?.textContent?.trim()).toBe(
-      "agent:main:main",
+      "Main Session",
     );
     expect(
       Array.from(details?.querySelectorAll(".session-details-panel__badges > *") ?? []).map(
