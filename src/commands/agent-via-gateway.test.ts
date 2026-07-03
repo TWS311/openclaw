@@ -308,6 +308,31 @@ describe("agentCliCommand", () => {
     });
   });
 
+  it("sends trusted workspace and cwd overrides to gateway with admin authority", async () => {
+    await withTempStore(async () => {
+      mockGatewaySuccessReply();
+
+      await agentCliCommand(
+        {
+          message: "hi",
+          to: "+1555",
+          workspace: "/tmp/project-agent-workspace",
+          cwd: "/tmp/project-agent-workspace/worktrees/task-1",
+        },
+        runtime,
+      );
+
+      expect(callGateway).toHaveBeenCalledTimes(1);
+      const request = requireRecord(requireFirstCallArg(callGateway, "gateway"), "gateway request");
+      expect(request.clientName).toBe("gateway-client");
+      expect(request.mode).toBe("backend");
+      expect(request.scopes).toEqual(["operator.admin"]);
+      const params = requireRecord(request.params, "gateway request params");
+      expect(params.workspaceDir).toBe("/tmp/project-agent-workspace");
+      expect(params.cwd).toBe("/tmp/project-agent-workspace/worktrees/task-1");
+    });
+  });
+
   it("reads a UTF-8 message file for gateway dispatch", async () => {
     await withTempStore(async ({ dir }) => {
       const messageFile = path.join(dir, "task.md");
@@ -1763,6 +1788,32 @@ describe("agentCliCommand", () => {
       expect(localOpts.oneShotCliRun).toBe(true);
       expect(localOpts).not.toHaveProperty("resultMetaOverrides");
       expect(runtime.log).toHaveBeenCalledWith("local");
+    });
+  });
+
+  it("maps local --workspace and --cwd into embedded agent command opts", async () => {
+    await withTempStore(async () => {
+      mockLocalAgentReply();
+
+      await agentCliCommand(
+        {
+          message: "hi",
+          sessionKey: "agent:main:incident-42",
+          workspace: "/tmp/project-agent-workspace",
+          cwd: "/tmp/project-agent-workspace/worktrees/task-1",
+          local: true,
+        },
+        runtime,
+      );
+
+      expect(callGateway).not.toHaveBeenCalled();
+      expect(agentCommand).toHaveBeenCalledTimes(1);
+      const localOpts = requireRecord(
+        requireFirstCallArg(agentCommand, "embedded agent"),
+        "embedded agent options",
+      );
+      expect(localOpts.workspaceDir).toBe("/tmp/project-agent-workspace");
+      expect(localOpts.cwd).toBe("/tmp/project-agent-workspace/worktrees/task-1");
     });
   });
 

@@ -86,13 +86,42 @@ describe("runEmbeddedAttempt cwd/workspace split", () => {
     });
   });
 
-  it("rejects cwd overrides for sandboxed runs instead of silently ignoring them", async () => {
-    // Sandboxed attempts already remap the workspace; accepting an extra cwd
-    // override would make tool roots ambiguous.
+  it("uses sandbox cwd overrides when they stay inside the effective workspace", async () => {
+    const sandboxWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-sandbox-copy-"));
+    const sandboxTaskRepo = path.join(sandboxWorkspace, "worktrees", "task-1");
+    tempPaths.push(sandboxWorkspace);
+    await fs.mkdir(sandboxTaskRepo, { recursive: true });
     hoisted.resolveSandboxContextMock.mockResolvedValueOnce({
       enabled: true,
       workspaceAccess: "ro",
-      workspaceDir: "/tmp/openclaw-sandbox-copy",
+      workspaceDir: sandboxWorkspace,
+    });
+
+    await createContextEngineAttemptRunner({
+      contextEngine: createContextEngineBootstrapAndAssemble(),
+      sessionKey: "agent:main:subagent:child",
+      tempPaths,
+      attemptOverrides: {
+        cwd: sandboxTaskRepo,
+        disableTools: false,
+      },
+    });
+
+    const toolsCall = hoisted.createOpenClawCodingToolsMock.mock.calls[0]?.[0] as
+      | { cwd?: string; workspaceDir?: string }
+      | undefined;
+    expect(toolsCall?.workspaceDir).toBe(sandboxWorkspace);
+    expect(toolsCall?.cwd).toBe(sandboxTaskRepo);
+  });
+
+  it("rejects sandbox cwd overrides that escape the effective workspace", async () => {
+    const sandboxWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-sandbox-copy-"));
+    const outsideRepo = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-outside-repo-"));
+    tempPaths.push(sandboxWorkspace, outsideRepo);
+    hoisted.resolveSandboxContextMock.mockResolvedValueOnce({
+      enabled: true,
+      workspaceAccess: "ro",
+      workspaceDir: sandboxWorkspace,
     });
 
     await expect(
@@ -101,10 +130,10 @@ describe("runEmbeddedAttempt cwd/workspace split", () => {
         sessionKey: "agent:main:subagent:child",
         tempPaths,
         attemptOverrides: {
-          cwd: "/tmp/task-repo",
+          cwd: outsideRepo,
         },
       }),
-    ).rejects.toThrow("cwd override is not supported");
+    ).rejects.toThrow("must stay inside the effective sandbox workspace");
     expect(hoisted.createOpenClawCodingToolsMock).not.toHaveBeenCalled();
   });
 });

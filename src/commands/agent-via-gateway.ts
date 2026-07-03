@@ -73,6 +73,8 @@ type AgentCliOpts = {
   to?: string;
   sessionId?: string;
   sessionKey?: string;
+  workspace?: string;
+  cwd?: string;
   thinking?: string;
   verbose?: string;
   json?: boolean;
@@ -730,7 +732,11 @@ async function agentViaGatewayCommand(
   const idempotencyKey = normalizeOptionalString(opts.runId) || randomIdempotencyKey();
   const modelOverride = normalizeOptionalString(opts.model);
   const hasModelOverride = Boolean(modelOverride);
-  const needsAdminGatewayIdentity = hasModelOverride || isSessionResetCommand(body);
+  const workspaceOverride = normalizeOptionalString(opts.workspace);
+  const cwdOverride = normalizeOptionalString(opts.cwd);
+  const hasRuntimePathOverride = Boolean(workspaceOverride || cwdOverride);
+  const needsAdminGatewayIdentity =
+    hasModelOverride || hasRuntimePathOverride || isSessionResetCommand(body);
   const gatewayIdentity: AgentGatewayCallIdentity = needsAdminGatewayIdentity
     ? {
         clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -775,6 +781,8 @@ async function agentViaGatewayCommand(
             timeout: timeoutSeconds,
             lane: opts.lane,
             extraSystemPrompt: opts.extraSystemPrompt,
+            workspaceDir: workspaceOverride,
+            cwd: cwdOverride,
             cleanupBundleMcpOnRunEnd: true,
             idempotencyKey,
           },
@@ -924,6 +932,8 @@ export async function agentCliCommand(
     ...gatewayDispatchOpts,
     agentId: gatewayDispatchOpts.agent,
     replyAccountId: gatewayDispatchOpts.replyAccount,
+    workspaceDir: gatewayDispatchOpts.workspace,
+    cwd: gatewayDispatchOpts.cwd,
     cleanupBundleMcpOnRunEnd: true,
     cleanupCliLiveSessionOnRunEnd: true,
     oneShotCliRun: dispatchOpts.local === true,

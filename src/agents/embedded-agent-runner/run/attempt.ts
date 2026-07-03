@@ -3,6 +3,7 @@
  */
 import fs from "node:fs/promises";
 import os from "node:os";
+import path from "node:path";
 import { MAX_IMAGE_BYTES } from "@openclaw/media-core/constants";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
@@ -892,12 +893,17 @@ export async function runEmbeddedAttempt(
       : sandbox.workspaceDir
     : resolvedWorkspace;
   const requestedCwd = params.cwd ? resolveUserPath(params.cwd) : undefined;
-  if (sandbox?.enabled && requestedCwd && requestedCwd !== resolvedWorkspace) {
-    throw new Error(
-      "cwd override is not supported for sandboxed embedded agent runs; omit cwd or use the agent workspace as cwd",
-    );
+  if (sandbox?.enabled && requestedCwd) {
+    const relative = path.relative(effectiveWorkspace, requestedCwd);
+    const cwdInsideWorkspace =
+      relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    if (!cwdInsideWorkspace) {
+      throw new Error(
+        "cwd override for sandboxed embedded agent runs must stay inside the effective sandbox workspace",
+      );
+    }
   }
-  const effectiveCwd = sandbox?.enabled ? effectiveWorkspace : (requestedCwd ?? effectiveWorkspace);
+  const effectiveCwd = requestedCwd ?? effectiveWorkspace;
   await fs.mkdir(effectiveWorkspace, { recursive: true });
   let currentPluginMetadataSnapshotResolved = false;
   let currentPluginMetadataSnapshot: PluginMetadataSnapshot | undefined;

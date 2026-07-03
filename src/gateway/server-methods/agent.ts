@@ -2,6 +2,7 @@
 // and related session-aware RPC handlers used by UI and operator clients.
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import path from "node:path";
 import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
@@ -131,6 +132,7 @@ import {
   isInternalNonDeliveryChannel,
   normalizeMessageChannel,
 } from "../../utils/message-channel.js";
+import { resolveUserPath } from "../../utils.js";
 import { resolveAssistantIdentity } from "../assistant-identity.js";
 import {
   type ChatAbortControllerEntry,
@@ -222,6 +224,37 @@ function logAttachmentFailure(
 function clientHasAdminScope(client: GatewayRequestHandlerOptions["client"]): boolean {
   const scopes = Array.isArray(client?.connect?.scopes) ? client.connect.scopes : [];
   return scopes.includes(ADMIN_SCOPE);
+}
+
+function isPathInsideOrEqual(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function resolveTrustedRuntimePathOverrides(params: {
+  workspaceDir?: string;
+  cwd?: string;
+}): { workspaceDir?: string; cwd?: string } {
+  const workspaceDirRaw = normalizeOptionalString(params.workspaceDir);
+  const cwdRaw = normalizeOptionalString(params.cwd);
+  if (!workspaceDirRaw && !cwdRaw) {
+    return {};
+  }
+  if (workspaceDirRaw?.includes("\0") || cwdRaw?.includes("\0")) {
+    throw new Error("workspace/cwd overrides must not contain NUL bytes.");
+  }
+  if (cwdRaw && !workspaceDirRaw) {
+    throw new Error("cwd override requires a workspaceDir override.");
+  }
+  const workspaceDir = workspaceDirRaw ? resolveUserPath(workspaceDirRaw) : undefined;
+  const cwd = cwdRaw ? resolveUserPath(cwdRaw) : undefined;
+  if (workspaceDir && cwd && !isPathInsideOrEqual(workspaceDir, cwd)) {
+    throw new Error("cwd override must stay inside the workspaceDir override.");
+  }
+  return {
+    ...(workspaceDir ? { workspaceDir } : {}),
+    ...(cwd ? { cwd } : {}),
+  };
 }
 
 function respondDeletedAgentSession(params: {
@@ -1147,11 +1180,15 @@ export const agentHandlers: GatewayRequestHandlers = {
       label?: string;
       inputProvenance?: InputProvenance;
       workspaceDir?: string;
+      cwd?: string;
       voiceWakeTrigger?: string;
     };
     const allowModelOverride = resolveAllowModelOverrideFromClient(client);
     const canUseInternalRuntimeHandoff = resolveCanUseInternalRuntimeHandoff(client);
     const requestedModelOverride = Boolean(request.provider || request.model);
+    const requestedWorkspaceDir = normalizeOptionalString(request.workspaceDir);
+    const requestedCwd = normalizeOptionalString(request.cwd);
+    const requestedRuntimePathOverride = Boolean(requestedWorkspaceDir || requestedCwd);
     const requestedInternalSessionEffects = request.sessionEffects === "internal";
     const requestedPromptPersistenceSuppression = request.suppressPromptPersistence === true;
     const isRawModelRun = request.modelRun === true || request.promptMode === "none";
@@ -1165,6 +1202,29 @@ export const agentHandlers: GatewayRequestHandlers = {
         ),
       );
       return;
+    }
+    let runtimePathOverrides: { workspaceDir?: string; cwd?: string } = {};
+    if (requestedRuntimePathOverride) {
+      if (!clientHasAdminScope(client)) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "workspaceDir/cwd overrides are reserved for admin callers.",
+          ),
+        );
+        return;
+      }
+      try {
+        runtimePathOverrides = resolveTrustedRuntimePathOverrides({
+          workspaceDir: requestedWorkspaceDir,
+          cwd: requestedCwd,
+        });
+      } catch (err) {
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, formatForLog(err)));
+        return;
+      }
     }
     if (
       (requestedInternalSessionEffects || requestedPromptPersistenceSuppression) &&
@@ -2900,14 +2960,18 @@ export const agentHandlers: GatewayRequestHandlers = {
                 }
               },
               // Internal-only: allow workspace override for spawned subagent runs.
-              workspaceDir: resolveIngressWorkspaceOverrideForSpawnedRun({
-                spawnedBy: spawnedByValue,
-                workspaceDir: sessionEntry?.spawnedWorkspaceDir,
-              }),
-              cwd: resolveSessionRuntimeCwd({
-                spawnedBy: spawnedByValue,
-                sessionEntry,
-              }),
+              workspaceDir:
+                runtimePathOverrides.workspaceDir ??
+                resolveIngressWorkspaceOverrideForSpawnedRun({
+                  spawnedBy: spawnedByValue,
+                  workspaceDir: sessionEntry?.spawnedWorkspaceDir,
+                }),
+              cwd:
+                runtimePathOverrides.cwd ??
+                resolveSessionRuntimeCwd({
+                  spawnedBy: spawnedByValue,
+                  sessionEntry,
+                }),
               allowModelOverride,
             },
             runId,

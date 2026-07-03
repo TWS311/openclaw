@@ -40,6 +40,8 @@ export function registerAgentTurnCommand(
     .option("--session-key <key>", "Explicit session key (agent:<id>:<key>, or scoped to --agent)")
     .option("--session-id <id>", "Use an explicit session id")
     .option("--agent <id>", "Agent id (overrides routing bindings)")
+    .option("--workspace <dir>", "Trusted local agent workspace override for this run")
+    .option("--cwd <dir>", "Trusted task working directory override for this run")
     .option("--model <id>", "Model override for this run (provider/model or model id)")
     .option(
       "--thinking <level>",
