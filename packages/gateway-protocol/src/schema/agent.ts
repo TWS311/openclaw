@@ -232,6 +232,10 @@ export const AgentParamsSchema = Type.Object(
       Type.Union([Type.Literal("automatic"), Type.Literal("message_tool_only")]),
     ),
     disableMessageTool: Type.Optional(Type.Boolean()),
+    // Trusted gateway callers can bind an agent run to a runtime workspace/cwd.
+    // The gateway handler enforces admin scope and path containment.
+    workspaceDir: Type.Optional(Type.String()),
+    cwd: Type.Optional(Type.String()),
     voiceWakeTrigger: Type.Optional(Type.String()),
     idempotencyKey: NonEmptyString,
     label: Type.Optional(SessionLabelString),

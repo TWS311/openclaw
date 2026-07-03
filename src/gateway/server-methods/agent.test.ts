@@ -2374,6 +2374,108 @@ describe("gateway agent handler", () => {
     );
   });
 
+  it("forwards admin workspace and cwd overrides to ingress agent runs", async () => {
+    primeMainAgentRun({ cfg: mocks.loadConfigReturn });
+    mocks.agentCommand.mockClear();
+
+    await invokeAgent(
+      {
+        message: "project runtime path check",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        workspaceDir: "/tmp/openclaw-project/agents/main",
+        cwd: "/tmp/openclaw-project/agents/main/worktrees/task-1",
+        idempotencyKey: "test-admin-runtime-paths",
+      } as AgentParams,
+      {
+        reqId: "admin-runtime-paths",
+        client: { connect: { scopes: ["operator.admin"] } } as AgentHandlerArgs["client"],
+      },
+    );
+
+    const callArgs = await waitForAgentCommandCall<{
+      workspaceDir?: string;
+      cwd?: string;
+    }>();
+    expect(callArgs.workspaceDir).toBe("/tmp/openclaw-project/agents/main");
+    expect(callArgs.cwd).toBe("/tmp/openclaw-project/agents/main/worktrees/task-1");
+  });
+
+  it("rejects workspace and cwd overrides for non-admin callers", async () => {
+    primeMainAgentRun({ cfg: mocks.loadConfigReturn });
+    mocks.agentCommand.mockClear();
+
+    const respond = await invokeAgent(
+      {
+        message: "non-admin path override",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        workspaceDir: "/tmp/openclaw-project/agents/main",
+        idempotencyKey: "test-non-admin-runtime-paths",
+      } as AgentParams,
+      {
+        reqId: "non-admin-runtime-paths",
+        client: backendGatewayClient(),
+        flushDispatch: false,
+      },
+    );
+
+    const error = expectRespondError(respond, {});
+    expectStringFieldContains(
+      error,
+      "message",
+      "workspaceDir/cwd overrides are reserved for admin callers",
+    );
+    expect(mocks.agentCommand).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "cwd without workspaceDir",
+      params: {
+        cwd: "/tmp/openclaw-project/worktrees/task-1",
+      },
+      expected: "cwd override requires a workspaceDir override",
+    },
+    {
+      name: "cwd outside workspaceDir",
+      params: {
+        workspaceDir: "/tmp/openclaw-project/agents/main",
+        cwd: "/tmp/openclaw-project/worktrees/task-1",
+      },
+      expected: "cwd override must stay inside the workspaceDir override",
+    },
+    {
+      name: "NUL bytes",
+      params: {
+        workspaceDir: "/tmp/openclaw-project/agents/main\0suffix",
+      },
+      expected: "workspace/cwd overrides must not contain NUL bytes",
+    },
+  ])("rejects invalid admin runtime path overrides: $name", async ({ params, expected }) => {
+    primeMainAgentRun({ cfg: mocks.loadConfigReturn });
+    mocks.agentCommand.mockClear();
+
+    const respond = await invokeAgent(
+      {
+        message: "bad admin path override",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+        ...params,
+        idempotencyKey: `test-admin-runtime-paths-${params.cwd ?? "workspace"}`,
+      } as AgentParams,
+      {
+        reqId: "admin-runtime-paths-invalid",
+        client: { connect: { scopes: ["operator.admin"] } } as AgentHandlerArgs["client"],
+        flushDispatch: false,
+      },
+    );
+
+    const error = expectRespondError(respond, {});
+    expectStringFieldContains(error, "message", expected);
+    expect(mocks.agentCommand).not.toHaveBeenCalled();
+  });
+
   it("rejects public transcriptMessage overrides", async () => {
     primeMainAgentRun({ cfg: mocks.loadConfigReturn });
     mocks.agentCommand.mockClear();
