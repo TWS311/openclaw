@@ -44,10 +44,39 @@ export type TextScaleStop = (typeof TEXT_SCALE_STOPS)[number];
 export const CHAT_AUTO_SCROLL_MODES = ["always", "near-bottom", "off"] as const;
 export type ChatAutoScrollMode = (typeof CHAT_AUTO_SCROLL_MODES)[number];
 
+export const SIDEBAR_SESSION_LIST_TABS = ["recent", "pinned", "archived"] as const;
+export type SidebarSessionListTab = (typeof SIDEBAR_SESSION_LIST_TABS)[number];
+
 export function normalizeChatAutoScrollMode(value: unknown): ChatAutoScrollMode {
   return CHAT_AUTO_SCROLL_MODES.includes(value as ChatAutoScrollMode)
     ? (value as ChatAutoScrollMode)
     : "near-bottom";
+}
+
+export function normalizeSidebarSessionListTab(value: unknown): SidebarSessionListTab {
+  return SIDEBAR_SESSION_LIST_TABS.includes(value as SidebarSessionListTab)
+    ? (value as SidebarSessionListTab)
+    : "recent";
+}
+
+function normalizeSidebarPinnedSessionKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  for (const entry of value) {
+    const key = normalizeOptionalString(entry);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    keys.push(key);
+    if (keys.length >= 50) {
+      break;
+    }
+  }
+  return keys;
 }
 
 function snapBorderRadius(value: number): BorderRadiusStop {
@@ -95,6 +124,9 @@ export type UiSettings = {
   navWidth: number; // Sidebar width when expanded (240–400px)
   navGroupsCollapsed: Record<string, boolean>; // Which nav groups are collapsed
   recentSessionsCollapsed?: boolean; // Collapse recent sessions list in sidebar
+  sidebarPinnedSessionKeys: string[]; // Locally pinned sessions in the dashboard sidebar
+  sidebarSessionListTab: SidebarSessionListTab; // Active sidebar session list tab
+  sidebarSessionActiveOnly: boolean; // Restrict sidebar session list to active runs
   borderRadius: number; // Corner roundness (0–100, default 50)
   textScale?: TextScaleStop; // Browser-local text scale percentage
   customTheme?: ImportedCustomTheme;
@@ -254,6 +286,9 @@ export function loadSettings(): UiSettings {
     navWidth: 220,
     navGroupsCollapsed: {},
     recentSessionsCollapsed: false,
+    sidebarPinnedSessionKeys: [],
+    sidebarSessionListTab: "recent",
+    sidebarSessionActiveOnly: false,
     borderRadius: 50,
     textScale: 100,
   };
@@ -318,6 +353,14 @@ export function loadSettings(): UiSettings {
         typeof parsed.recentSessionsCollapsed === "boolean"
           ? parsed.recentSessionsCollapsed
           : defaults.recentSessionsCollapsed,
+      sidebarPinnedSessionKeys: normalizeSidebarPinnedSessionKeys(
+        parsed.sidebarPinnedSessionKeys,
+      ),
+      sidebarSessionListTab: normalizeSidebarSessionListTab(parsed.sidebarSessionListTab),
+      sidebarSessionActiveOnly:
+        typeof parsed.sidebarSessionActiveOnly === "boolean"
+          ? parsed.sidebarSessionActiveOnly
+          : defaults.sidebarSessionActiveOnly,
       borderRadius:
         typeof parsed.borderRadius === "number" &&
         parsed.borderRadius >= 0 &&
@@ -503,6 +546,9 @@ function persistSettings(next: UiSettings) {
     navWidth: next.navWidth,
     navGroupsCollapsed: next.navGroupsCollapsed,
     recentSessionsCollapsed: next.recentSessionsCollapsed ?? false,
+    sidebarPinnedSessionKeys: normalizeSidebarPinnedSessionKeys(next.sidebarPinnedSessionKeys),
+    sidebarSessionListTab: normalizeSidebarSessionListTab(next.sidebarSessionListTab),
+    sidebarSessionActiveOnly: next.sidebarSessionActiveOnly === true,
     borderRadius: next.borderRadius,
     textScale: normalizeTextScale(next.textScale),
     ...(next.customTheme ? { customTheme: next.customTheme } : {}),

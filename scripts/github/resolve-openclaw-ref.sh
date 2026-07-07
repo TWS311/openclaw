@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REMOTE_URL="${OPENCLAW_REF_REMOTE:-https://github.com/openclaw/openclaw.git}"
+OPENCLAW_REF_REPOSITORY="${OPENCLAW_REF_REPOSITORY:-${GITHUB_REPOSITORY:-openclaw/openclaw}}"
+OPENCLAW_REF_REPOSITORY="${OPENCLAW_REF_REPOSITORY%.git}"
+REMOTE_URL="${OPENCLAW_REF_REMOTE:-https://github.com/${OPENCLAW_REF_REPOSITORY}.git}"
 REF=""
 EXPECTED_SHA=""
 FALLBACK_OK=0

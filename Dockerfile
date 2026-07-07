@@ -63,12 +63,24 @@ RUN corepack enable
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY package.json .npmrc ./
 COPY openclaw.mjs ./
 COPY ui/package.json ./ui/package.json
 COPY patches ./patches
 COPY scripts/postinstall-bundled-plugins.mjs scripts/preinstall-package-manager-warning.mjs scripts/npm-runner.mjs scripts/windows-cmd-helpers.mjs scripts/prepare-git-hooks.mjs ./scripts/
 COPY scripts/lib/package-dist-imports.mjs ./scripts/lib/package-dist-imports.mjs
+
+RUN --mount=type=bind,source=.,target=/tmp/openclaw-source,readonly \
+    if [ -f /tmp/openclaw-source/pnpm-lock.yaml ]; then \
+      cp /tmp/openclaw-source/pnpm-lock.yaml .; \
+    else \
+      echo "WARN: pnpm-lock.yaml not found in build context; falling back to unlocked install." >&2; \
+    fi; \
+    if [ -f /tmp/openclaw-source/pnpm-workspace.yaml ]; then \
+      cp /tmp/openclaw-source/pnpm-workspace.yaml .; \
+    else \
+      echo "WARN: pnpm-workspace.yaml not found in build context; build may fallback to workspace-less install mode." >&2; \
+    fi
 
 COPY --from=workspace-deps /out/packages/ ./packages/
 COPY --from=workspace-deps /out/${OPENCLAW_BUNDLED_PLUGIN_DIR}/ ./${OPENCLAW_BUNDLED_PLUGIN_DIR}/
@@ -76,10 +88,38 @@ COPY --from=workspace-deps /out/${OPENCLAW_BUNDLED_PLUGIN_DIR}/ ./${OPENCLAW_BUN
 # Reduce OOM risk on low-memory hosts during dependency installation.
 # Docker builds on small VMs may otherwise fail with "Killed" (exit 137).
 RUN --mount=type=cache,id=openclaw-pnpm-store,target=/root/.local/share/pnpm/store,sharing=locked \
-    NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile \
-      --config.supportedArchitectures.os=linux \
-      --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
-      --config.supportedArchitectures.libc=glibc
+    if [ -f pnpm-lock.yaml ]; then \
+      NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile \
+        --config.supportedArchitectures.os=linux \
+        --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
+        --config.supportedArchitectures.libc=glibc || \
+      (\
+        echo "WARN: frozen lockfile install failed; regenerating lockfile and retrying with frozen install." >&2; \
+        NODE_OPTIONS=--max-old-space-size=2048 pnpm install \
+          --lockfile-only \
+          --ignore-scripts \
+          --config.supportedArchitectures.os=linux \
+          --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
+          --config.supportedArchitectures.libc=glibc && \
+        NODE_OPTIONS=--max-old-space-size=2048 pnpm install --frozen-lockfile \
+          --config.supportedArchitectures.os=linux \
+          --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
+          --config.supportedArchitectures.libc=glibc; \
+      ); \
+    else \
+      echo "WARN: no pnpm-lock.yaml; generating lockfile then using frozen install." >&2; \
+      NODE_OPTIONS=--max-old-space-size=2048 pnpm install \
+        --lockfile-only \
+        --ignore-scripts \
+        --config.supportedArchitectures.os=linux \
+        --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
+        --config.supportedArchitectures.libc=glibc && \
+      NODE_OPTIONS=--max-old-space-size=2048 pnpm install \
+        --config.supportedArchitectures.os=linux \
+        --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
+        --config.supportedArchitectures.libc=glibc \
+        --frozen-lockfile; \
+    fi
 
 # pnpm v10+ may append peer-resolution hashes to virtual-store folder names; do not hardcode `.pnpm/...`
 # paths. Matrix's native downloader can hit transient release CDN errors while

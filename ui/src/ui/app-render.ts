@@ -31,11 +31,15 @@ import { hasOperatorAdminAccess, hasOperatorWriteAccess, warnQueryToken } from "
 import type { AppViewState } from "./app-view-state.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
 import {
-  renderChatSessionSelect,
   resolveChatAgentFilterId,
   resolveChatAgentFilterOptions,
   resolvePreferredSessionForAgent,
 } from "./chat/session-controls.ts";
+import {
+  renderSidebarSessionList,
+  resolveSidebarActiveSessionLabel,
+  resolveSidebarSelectedAgentId,
+} from "./chat/sidebar-session-list.ts";
 import { clearChatMessagesFromCache } from "./chat/session-message-cache.ts";
 import {
   controlUiNowMs,
@@ -156,8 +160,7 @@ import {
 import { captureSessionToWorkboard, getWorkboardState } from "./controllers/workboard.ts";
 import { getCronJobPayload } from "./cron-payload.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "./external-link.ts";
-import { formatTimeMs } from "./format.ts";
-import { formatRelativeTimestamp } from "./format.ts";
+import { formatTimeMs, formatTokens } from "./format.ts";
 import { icons } from "./icons.ts";
 import { createLazyView, renderLazyView } from "./lazy-view.ts";
 import {
@@ -172,11 +175,10 @@ import {
   type Tab,
 } from "./navigation.ts";
 import { isPluginEnabledInConfigSnapshot } from "./plugin-activation.ts";
-import { isCronSessionKey, resolveSessionDisplayName } from "./session-display.ts";
+import { isMonitoredAuthProvider } from "./model-auth-helpers.ts";
+import { collectQuotaWindowsFromAuthStatus } from "./provider-quota-summary.ts";
 import {
   buildAgentMainSessionKey,
-  isSessionKeyTiedToAgent,
-  isSubagentSessionKey,
   normalizeAgentId,
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
@@ -488,184 +490,72 @@ function renderSettingsWorkspace(state: AppViewState, body: unknown) {
   `;
 }
 
-function isSidebarSessionBusy(state: AppViewState) {
-  return (
-    state.chatLoading ||
-    state.chatSending ||
-    Boolean(state.chatRunId) ||
-    state.chatStream !== null ||
-    state.chatQueue.length > 0
-  );
-}
-
-function resolveSidebarDefaultAgentId(state: AppViewState): string {
-  const snapshot = state.hello?.snapshot as
-    | { sessionDefaults?: { defaultAgentId?: string } }
-    | undefined;
-  return normalizeAgentId(
-    state.agentsList?.defaultId ?? snapshot?.sessionDefaults?.defaultAgentId ?? "main",
-  );
-}
-
-function resolveSidebarSelectedAgentId(state: AppViewState): string {
-  const parsed = parseAgentSessionKey(state.sessionKey);
-  if (parsed) {
-    return normalizeAgentId(parsed.agentId);
-  }
-  const sessionKey = normalizeOptionalString(state.sessionKey)?.toLowerCase();
-  const fallbackAgentId =
-    sessionKey === "global" || sessionKey === "unknown"
-      ? (state.assistantAgentId ?? resolveSidebarDefaultAgentId(state))
-      : resolveSidebarDefaultAgentId(state);
-  return normalizeAgentId(fallbackAgentId);
-}
-
-function isSidebarSessionForSelectedAgent(
-  state: AppViewState,
-  row: GatewaySessionRow,
-  selectedAgentId: string,
-): boolean {
-  return isSessionKeyTiedToAgent(row.key, selectedAgentId, resolveSidebarDefaultAgentId(state));
-}
-
-function resolveSidebarRecentSessions(state: AppViewState): GatewaySessionRow[] {
-  const selectedAgentId = resolveSidebarSelectedAgentId(state);
-  const shouldFilterByAgent =
-    normalizeOptionalString(state.sessionKey)?.toLowerCase() !== "unknown";
-  return (state.sessionsResult?.sessions ?? [])
-    .filter(
-      (row) =>
-        !row.archived &&
-        row.kind !== "global" &&
-        row.kind !== "unknown" &&
-        row.kind !== "cron" &&
-        !isCronSessionKey(row.key) &&
-        !isSubagentSessionKey(row.key) &&
-        !row.spawnedBy &&
-        (!shouldFilterByAgent || isSidebarSessionForSelectedAgent(state, row, selectedAgentId)),
-    )
-    .toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-    .slice(0, 5);
-}
-
 function renderSidebarSessions(state: AppViewState) {
-  const collapsed = state.settings.navCollapsed;
-  const busy = isSidebarSessionBusy(state);
-  const recent = collapsed ? [] : resolveSidebarRecentSessions(state);
-  const newSessionDisabled = !state.connected || state.sessionsLoading || busy || !state.client;
-  const newSessionTitle = !state.connected
-    ? "Connect to create a new session"
-    : busy
-      ? "Finish the active run before creating a new session"
-      : "New session";
-
-  return html`
-    <section class="sidebar-sessions ${collapsed ? "sidebar-sessions--collapsed" : ""}">
-      <button
-        type="button"
-        class="sidebar-new-session"
-        title=${newSessionTitle}
-        aria-label=${t("chat.runControls.newSession")}
-        ?disabled=${newSessionDisabled}
-        @click=${async () => {
-          if (newSessionDisabled) {
-            return;
-          }
-          if (await createChatSession(state, { source: "user" })) {
-            state.setTab("chat" as import("./navigation.ts").Tab);
-          }
-        }}
-      >
-        <span class="sidebar-new-session__icon" aria-hidden="true">${icons.plus}</span>
-        ${collapsed
-          ? nothing
-          : html`<span class="sidebar-new-session__label"
-              >${t("chat.runControls.newSession")}</span
-            >`}
-      </button>
-      <div class="sidebar-session-select ${collapsed ? "sidebar-session-select--collapsed" : ""}">
-        ${renderChatSessionSelect(state, switchChatSession, {
-          compact: collapsed,
-          sessionSwitcherOnly: true,
-          surface: "sidebar",
-        })}
-      </div>
-      ${collapsed || recent.length === 0
-        ? nothing
-        : html`
-            <div
-              class="sidebar-recent-sessions ${state.settings.recentSessionsCollapsed
-                ? "sidebar-recent-sessions--collapsed"
-                : ""}"
-              aria-label=${t("overview.cards.recentSessions")}
-            >
-              <button
-                class="sidebar-recent-sessions__label"
-                type="button"
-                aria-expanded=${String(!state.settings.recentSessionsCollapsed)}
-                @click=${() => {
-                  state.applySettings({
-                    ...state.settings,
-                    recentSessionsCollapsed: !state.settings.recentSessionsCollapsed,
-                  });
-                }}
-              >
-                <span class="sidebar-recent-sessions__label-text"
-                  >${t("usage.sessions.recentShort")}</span
-                >
-                <span class="sidebar-recent-sessions__chevron"> ${icons.chevronDown} </span>
-              </button>
-              <div class="sidebar-recent-sessions__list">
-                ${recent.map((row) => renderSidebarRecentSession(state, row))}
-              </div>
-            </div>
-          `}
-    </section>
-  `;
+  return renderSidebarSessionList(state, {
+    collapsed: state.settings.navCollapsed,
+    onNewSession: async () => {
+      if (await createChatSession(state, { source: "user" })) {
+        state.setTab("chat" as import("./navigation.ts").Tab);
+      }
+    },
+    onSwitchSession: switchChatSession,
+  });
 }
 
-function renderSidebarRecentSession(state: AppViewState, row: GatewaySessionRow) {
-  const active = row.key === state.sessionKey;
-  const label = resolveSessionDisplayName(row.key, row);
-  const meta = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : "n/a";
-  const href = `${pathForTab("chat", state.basePath)}?session=${encodeURIComponent(row.key)}`;
-  return html`
-    <a
-      href=${href}
-      class="sidebar-recent-session ${active ? "sidebar-recent-session--active" : ""}"
-      data-session-key=${row.key}
-      title=${`${label} · ${row.key}`}
-      @click=${(event: MouseEvent) => {
-        if (
-          event.defaultPrevented ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        ) {
-          return;
-        }
-        event.preventDefault();
-        if (row.key !== state.sessionKey) {
-          switchChatSession(state, row.key);
-        }
-        state.setTab("chat" as import("./navigation.ts").Tab);
-      }}
-    >
-      <span class="sidebar-recent-session__dot" aria-hidden="true"></span>
-      <span class="sidebar-recent-session__body">
-        <span class="sidebar-recent-session__name">${label}</span>
-        <span class="sidebar-recent-session__meta">${meta}</span>
-      </span>
-      ${row.hasActiveRun
-        ? html`<span
-            class="sidebar-recent-session__live"
-            aria-label=${t("sessions.sessionDetails.activeRun")}
-          ></span>`
-        : nothing}
-    </a>
-  `;
+function resolveDashboardHeaderActiveSessionRow(state: AppViewState): GatewaySessionRow | undefined {
+  return (
+    state.sessionsResult?.sessions.find((row) => row.key === state.sessionKey) ??
+    state.sidebarSessionListResult?.sessions.find((row) => row.key === state.sessionKey)
+  );
+}
+
+function resolveDashboardHeaderContextUsage(row: GatewaySessionRow | undefined): string | null {
+  const used = row?.totalTokens;
+  const limit = row?.contextTokens;
+  if (
+    typeof used !== "number" ||
+    !Number.isFinite(used) ||
+    typeof limit !== "number" ||
+    !Number.isFinite(limit) ||
+    limit <= 0 ||
+    used <= 0
+  ) {
+    return null;
+  }
+  const pct = Math.min(100, Math.max(0, Math.round((used / limit) * 100)));
+  return `${pct}% context`;
+}
+
+function resolveDashboardHeaderProviderUsage(state: AppViewState): string | null {
+  const primary = collectQuotaWindowsFromAuthStatus(
+    state.modelAuthStatusResult,
+    isMonitoredAuthProvider,
+  )[0];
+  if (!primary) {
+    return null;
+  }
+  return `${primary.remaining}% usage`;
+}
+
+function resolveDashboardHeaderChips(
+  state: AppViewState,
+  agentLabel: string,
+): string[] {
+  if (state.tab !== "chat") {
+    return [];
+  }
+  const row = resolveDashboardHeaderActiveSessionRow(state);
+  const contextUsage = resolveDashboardHeaderContextUsage(row);
+  const tokenLabel =
+    typeof row?.totalTokens === "number" && Number.isFinite(row.totalTokens)
+      ? `${formatTokens(row.totalTokens, "")} tokens`
+      : null;
+  return [
+    normalizeOptionalString(agentLabel),
+    contextUsage,
+    tokenLabel && contextUsage ? null : tokenLabel,
+    resolveDashboardHeaderProviderUsage(state),
+  ].filter((entry): entry is string => Boolean(entry));
 }
 
 // Lazy-loaded view modules are deferred so the initial bundle stays small.
@@ -1403,6 +1293,11 @@ export function renderApp(state: AppViewState) {
   const navDrawerOpen = state.navDrawerOpen && !state.onboarding;
   const navCollapsed = state.settings.navCollapsed && !navDrawerOpen;
   const dashboardHeaderContext = resolveDashboardHeaderContext(state);
+  const dashboardHeaderSessionLabel = isChat ? resolveSidebarActiveSessionLabel(state) : "";
+  const dashboardHeaderChips = resolveDashboardHeaderChips(
+    state,
+    dashboardHeaderContext.agentLabel,
+  );
   const showThinking = state.onboarding ? false : state.settings.chatShowThinking;
   const showToolCalls = state.onboarding ? true : state.settings.chatShowToolCalls;
   const activeAssistantAgentId = resolveSidebarSelectedAgentId(state);
@@ -2508,6 +2403,8 @@ export function renderApp(state: AppViewState) {
               .tab=${state.tab}
               .basePath=${state.basePath}
               .agentLabel=${dashboardHeaderContext.agentLabel}
+              .sessionLabel=${dashboardHeaderSessionLabel}
+              .contextChips=${dashboardHeaderChips}
               @navigate=${(event: CustomEvent<Tab>) => {
                 state.setTab(event.detail);
               }}

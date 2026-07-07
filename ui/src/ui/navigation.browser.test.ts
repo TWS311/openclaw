@@ -507,35 +507,28 @@ describe("control UI routing", () => {
     ]) as typeof app.sessionsResult;
     await app.updateComplete;
 
-    const recent = Array.from(app.querySelectorAll<HTMLAnchorElement>(".sidebar-recent-session"));
-    expect(recent.map((entry) => entry.textContent?.replace(/\s+/g, " ").trim())).toEqual([
-      "Second workspace just now",
-      "First workspace 5m ago",
-    ]);
-
-    const recentSection = expectElement(app, ".sidebar-recent-sessions", HTMLElement);
-    const recentToggle = expectElement(
-      recentSection,
-      ".sidebar-recent-sessions__label",
+    const activeTab = expectElement(
+      app,
+      ".sidebar-session-tabs__btn--active",
       HTMLButtonElement,
     );
-    expect(recentToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(activeTab.textContent?.trim()).toBe("Recent");
 
-    recentToggle.click();
-    await app.updateComplete;
+    const rows = Array.from(app.querySelectorAll<HTMLElement>(".sidebar-session-row"));
+    expect(
+      rows.map((row) =>
+        row.querySelector(".sidebar-session-row__title")?.textContent?.replace(/\s+/g, " ").trim(),
+      ),
+    ).toEqual(["Second workspace", "First workspace"]);
+    expect(
+      rows.map((row) =>
+        row.querySelector(".sidebar-session-row__meta")?.textContent?.replace(/\s+/g, " ").trim(),
+      ),
+    ).toEqual(["main · just now", "main · 5m ago"]);
 
-    expect(app.settings.recentSessionsCollapsed).toBe(true);
-    expect(recentToggle.getAttribute("aria-expanded")).toBe("false");
-    expect([...recentSection.classList]).toContain("sidebar-recent-sessions--collapsed");
-
-    recentToggle.click();
-    await app.updateComplete;
-
-    expect(app.settings.recentSessionsCollapsed).toBe(false);
-    expect(recentToggle.getAttribute("aria-expanded")).toBe("true");
-    expect([...recentSection.classList]).not.toContain("sidebar-recent-sessions--collapsed");
-
-    recent[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    rows[1]
+      ?.querySelector<HTMLAnchorElement>(".sidebar-session-row__link")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
     await app.updateComplete;
 
     expect(app.tab).toBe("chat");
@@ -652,14 +645,12 @@ describe("control UI routing", () => {
 
     const shell = expectElement(app, ".shell", HTMLElement);
     const topbar = expectElement(app, ".topbar", HTMLElement);
-    const sessionSelect = expectElement(app, ".sidebar-session-select", HTMLElement);
+    const sessionList = expectElement(app, ".sidebar-session-list", HTMLElement);
     expect([...shell.classList]).toEqual(["shell", "shell--chat"]);
     expect(topbar.hasAttribute("inert")).toBe(false);
     expect(topbar.hasAttribute("aria-hidden")).toBe(false);
     expect(app.querySelector(".content-header")).toBeNull();
-    expect(sessionSelect.querySelector(".chat-controls__session-picker")).toBeInstanceOf(
-      HTMLElement,
-    );
+    expect(sessionList.querySelector(".sidebar-session-row")).toBeNull();
 
     app.setTab("channels");
 

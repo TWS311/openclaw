@@ -147,6 +147,9 @@ describe("loadSettings default gateway URL derivation", () => {
       navWidth: 220,
       navGroupsCollapsed: {},
       recentSessionsCollapsed: false,
+      sidebarPinnedSessionKeys: [],
+      sidebarSessionListTab: "recent",
+      sidebarSessionActiveOnly: false,
       borderRadius: 50,
       textScale: 100,
       sessionsByGateway: {
@@ -279,6 +282,9 @@ describe("loadSettings default gateway URL derivation", () => {
       navWidth: 220,
       navGroupsCollapsed: {},
       recentSessionsCollapsed: false,
+      sidebarPinnedSessionKeys: [],
+      sidebarSessionListTab: "recent",
+      sidebarSessionActiveOnly: false,
       borderRadius: 50,
       textScale: 100,
       sessionsByGateway: {
@@ -346,6 +352,86 @@ describe("loadSettings default gateway URL derivation", () => {
     >;
     expect(persisted.recentSessionsCollapsed).toBe(false);
     expect(loadSettings().recentSessionsCollapsed).toBe(false);
+  });
+
+  it("persists local sidebar session list preferences without gateway scope", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+
+    const gwUrl = expectedGatewayUrl("");
+    saveSettings({
+      gatewayUrl: gwUrl,
+      token: "",
+      sessionKey: "main",
+      lastActiveSessionKey: "main",
+      theme: "claw",
+      themeMode: "system",
+      chatShowThinking: true,
+      chatShowToolCalls: true,
+      chatAutoScroll: "near-bottom",
+      splitRatio: 0.6,
+      navCollapsed: false,
+      navWidth: 220,
+      navGroupsCollapsed: {},
+      recentSessionsCollapsed: false,
+      sidebarPinnedSessionKeys: [
+        "agent:main:alpha",
+        "agent:main:alpha",
+        "",
+        "agent:main:beta",
+      ],
+      sidebarSessionListTab: "pinned",
+      sidebarSessionActiveOnly: true,
+      borderRadius: 50,
+      textScale: 100,
+    });
+
+    const settings = loadSettings();
+    expect(settings.sidebarPinnedSessionKeys).toEqual([
+      "agent:main:alpha",
+      "agent:main:beta",
+    ]);
+    expect(settings.sidebarSessionListTab).toBe("pinned");
+    expect(settings.sidebarSessionActiveOnly).toBe(true);
+
+    const scopedKey = `openclaw.control.settings.v1:${gwUrl}`;
+    const persisted = JSON.parse(localStorage.getItem(scopedKey) ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    expect(persisted.sidebarPinnedSessionKeys).toEqual([
+      "agent:main:alpha",
+      "agent:main:beta",
+    ]);
+    expect(persisted.sidebarSessionListTab).toBe("pinned");
+    expect(persisted.sidebarSessionActiveOnly).toBe(true);
+  });
+
+  it("normalizes invalid persisted sidebar session list preferences", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+
+    const gwUrl = expectedGatewayUrl("");
+    localStorage.setItem(
+      `openclaw.control.settings.v1:${gwUrl}`,
+      JSON.stringify({
+        gatewayUrl: gwUrl,
+        sidebarPinnedSessionKeys: ["agent:main:alpha", 123, "", "agent:main:alpha"],
+        sidebarSessionListTab: "done",
+        sidebarSessionActiveOnly: "yes",
+      }),
+    );
+
+    const settings = loadSettings();
+    expect(settings.sidebarPinnedSessionKeys).toEqual(["agent:main:alpha"]);
+    expect(settings.sidebarSessionListTab).toBe("recent");
+    expect(settings.sidebarSessionActiveOnly).toBe(false);
   });
 
   it("normalizes persisted text scale to the nearest supported stop", () => {

@@ -9,6 +9,11 @@ export type AcceptedSessionSpawn = {
   childSessionKey: string;
 };
 
+export type AcceptedSessionSend = {
+  runId: string;
+  sessionKey: string;
+};
+
 /** Normalize a tool result that accepted a child session spawn. */
 export function normalizeAcceptedSessionSpawnResult(result: unknown): AcceptedSessionSpawn | null {
   const details = asOptionalRecord(asOptionalRecord(result)?.details);
@@ -21,6 +26,20 @@ export function normalizeAcceptedSessionSpawnResult(result: unknown): AcceptedSe
     return null;
   }
   return { runId, childSessionKey };
+}
+
+/** Normalize a tool result that accepted an inter-session send. */
+export function normalizeAcceptedSessionSendResult(result: unknown): AcceptedSessionSend | null {
+  const details = asOptionalRecord(asOptionalRecord(result)?.details);
+  if (!details || details.status !== "accepted") {
+    return null;
+  }
+  const runId = normalizeOptionalString(details.runId);
+  const sessionKey = normalizeOptionalString(details.sessionKey);
+  if (!runId || !sessionKey) {
+    return null;
+  }
+  return { runId, sessionKey };
 }
 
 /** Return true when a collection contains at least one accepted child spawn. */

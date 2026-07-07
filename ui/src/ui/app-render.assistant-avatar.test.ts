@@ -69,6 +69,9 @@ function createState(overrides: Partial<AppViewState> = {}): AppViewState {
       navWidth: 280,
       navCollapsed: false,
       navGroupsCollapsed: {},
+      sidebarPinnedSessionKeys: [],
+      sidebarSessionListTab: "recent",
+      sidebarSessionActiveOnly: false,
       borderRadius: 50,
       textScale: 100,
       chatShowThinking: false,
@@ -156,6 +159,13 @@ function createState(overrides: Partial<AppViewState> = {}): AppViewState {
     scrollToBottom: vi.fn(),
     presenceEntries: [],
     sessionsResult: null,
+    sidebarSessionSearchQuery: "",
+    sidebarSessionSearchAppliedQuery: "",
+    sidebarSessionAgentFilterId: "__all__",
+    sidebarSessionListLoading: false,
+    sidebarSessionListError: null,
+    sidebarSessionListResult: null,
+    sidebarSessionListResultAgentFilterId: null,
     cronStatus: null,
     configSettingsMode: "quick",
     configForm: {},
@@ -576,6 +586,7 @@ describe("renderApp assistant avatar routing", () => {
         createState({
           tab: "chat",
           sessionKey: "agent:work:main",
+          sidebarSessionAgentFilterId: "work",
           assistantAgentId: "work",
           agentsList: {
             defaultId: "main",
@@ -615,7 +626,7 @@ describe("renderApp assistant avatar routing", () => {
       container,
     );
 
-    const labels = Array.from(container.querySelectorAll(".sidebar-recent-session__name")).map(
+    const labels = Array.from(container.querySelectorAll(".sidebar-session-row__title")).map(
       (node) => node.textContent?.trim(),
     );
     expect(labels).toEqual(["Work new", "Work older"]);
@@ -629,6 +640,7 @@ describe("renderApp assistant avatar routing", () => {
         createState({
           tab: "chat",
           sessionKey: "main",
+          sidebarSessionAgentFilterId: "main",
           assistantAgentId: "work",
           agentsList: {
             defaultId: "main",
@@ -668,7 +680,7 @@ describe("renderApp assistant avatar routing", () => {
       container,
     );
 
-    const labels = Array.from(container.querySelectorAll(".sidebar-recent-session__name")).map(
+    const labels = Array.from(container.querySelectorAll(".sidebar-session-row__title")).map(
       (node) => node.textContent?.trim(),
     );
     expect(labels).toEqual(["Main legacy", "Main old"]);
@@ -682,6 +694,7 @@ describe("renderApp assistant avatar routing", () => {
         createState({
           tab: "chat",
           sessionKey: "global",
+          sidebarSessionAgentFilterId: "ops",
           assistantAgentId: null,
           agentsList: null,
           hello: {
@@ -716,7 +729,7 @@ describe("renderApp assistant avatar routing", () => {
       container,
     );
 
-    const labels = Array.from(container.querySelectorAll(".sidebar-recent-session__name")).map(
+    const labels = Array.from(container.querySelectorAll(".sidebar-session-row__title")).map(
       (node) => node.textContent?.trim(),
     );
     expect(labels).toEqual(["Ops new"]);
@@ -769,7 +782,7 @@ describe("renderApp assistant avatar routing", () => {
       container,
     );
 
-    const labels = Array.from(container.querySelectorAll(".sidebar-recent-session__name")).map(
+    const labels = Array.from(container.querySelectorAll(".sidebar-session-row__title")).map(
       (node) => node.textContent?.trim(),
     );
     expect(labels).toEqual(["Main old", "Work new"]);

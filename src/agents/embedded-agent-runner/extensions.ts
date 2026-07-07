@@ -4,7 +4,10 @@
 import { randomUUID } from "node:crypto";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ProviderRuntimeModel } from "../../plugins/provider-runtime-model.types.js";
-import { normalizeAcceptedSessionSpawnResult } from "../accepted-session-spawn.js";
+import {
+  normalizeAcceptedSessionSendResult,
+  normalizeAcceptedSessionSpawnResult,
+} from "../accepted-session-spawn.js";
 import { setCompactionSafeguardRuntime } from "../agent-hooks/compaction-safeguard-runtime.js";
 import compactionSafeguardExtension from "../agent-hooks/compaction-safeguard.js";
 import contextPruningExtension from "../agent-hooks/context-pruning.js";
@@ -92,11 +95,17 @@ function buildAgentToolResultMiddlewareFactory(
       });
       const isAcceptedSessionSpawn =
         event.toolName === "sessions_spawn" && normalizeAcceptedSessionSpawnResult(result) !== null;
+      const isAcceptedSessionSend =
+        event.toolName === "sessions_send" && normalizeAcceptedSessionSendResult(result) !== null;
       const isError =
         !isAcceptedSessionSpawn &&
+        !isAcceptedSessionSend &&
         (event.isError === true || inputHadErrorStatus || isToolResultError(result));
       const clearsAcceptedSessionSpawnError =
         isAcceptedSessionSpawn &&
+        (event.isError === true || inputHadErrorStatus || isToolResultError(result));
+      const clearsAcceptedSessionSendError =
+        isAcceptedSessionSend &&
         (event.isError === true || inputHadErrorStatus || isToolResultError(result));
       if (eventToolCallId) {
         finalizeToolTerminalPresentation({
@@ -111,6 +120,7 @@ function buildAgentToolResultMiddlewareFactory(
         details: result.details,
         ...(isError ? { isError: true } : {}),
         ...(clearsAcceptedSessionSpawnError ? { isError: false } : {}),
+        ...(clearsAcceptedSessionSendError ? { isError: false } : {}),
       };
     });
   };

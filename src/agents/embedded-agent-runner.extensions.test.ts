@@ -557,6 +557,92 @@ describe("buildEmbeddedExtensionFactories", () => {
     expect(result).toEqual({ ...acceptedResult, isError: false });
   });
 
+  it("keeps an accepted sessions_send handoff successful even when the event is flagged as an error", async () => {
+    setActivePluginRegistry(createEmptyPluginRegistry());
+
+    const factories = buildEmbeddedExtensionFactories({
+      cfg: undefined,
+      sessionManager: SessionManager.inMemory(),
+      provider: "openai",
+      modelId: "gpt-5.4",
+      model: undefined,
+    });
+
+    const factory = factories[0];
+    expect(factory).toBeDefined();
+    if (!factory) {
+      throw new Error("Expected embedded tool-result extension factory");
+    }
+    const runtime = createExtensionRuntime();
+    const extension = await loadExtensionFromFactory(
+      factory,
+      "/tmp",
+      createEventBus(),
+      runtime,
+      "<embedded-test>",
+    );
+    const runner = new ExtensionRunner(
+      [extension],
+      runtime,
+      "/tmp",
+      SessionManager.inMemory(),
+      ModelRegistry.inMemory(AuthStorage.inMemory()),
+    );
+    const acceptedResult = jsonResult({
+      status: "accepted",
+      sessionKey: "agent:forge-implementation-engineer:main",
+      runId: "run-send-123",
+      delivery: { status: "pending", mode: "announce" },
+    });
+
+    const result = await runner.emitToolResult({
+      type: "tool_result",
+      toolName: "sessions_send",
+      toolCallId: "call-send",
+      input: {},
+      content: acceptedResult.content,
+      details: acceptedResult.details,
+      isError: true,
+    });
+
+    expect(result).toEqual({ ...acceptedResult, isError: false });
+  });
+
+  it("still flags an accepted-status sessions_send that is missing send identity", async () => {
+    setActivePluginRegistry(createEmptyPluginRegistry());
+
+    const factories = buildEmbeddedExtensionFactories({
+      cfg: undefined,
+      sessionManager: SessionManager.inMemory(),
+      provider: "openai",
+      modelId: "gpt-5.4",
+      model: undefined,
+    });
+
+    const handlers = new Map<string, Function>();
+    await factories[0]?.({
+      on(event: string, handler: Function) {
+        handlers.set(event, handler);
+      },
+    } as never);
+    const handler = handlers.get("tool_result");
+    const content = [{ type: "text", text: "partial send" }];
+    const details = { status: "accepted", runId: "run-send-123" };
+
+    const result = await handler?.(
+      {
+        toolName: "sessions_send",
+        toolCallId: "call-send-partial",
+        content,
+        details,
+        isError: true,
+      },
+      { cwd: "/tmp" },
+    );
+
+    expect(result).toEqual({ content, details, isError: true });
+  });
+
   it("still marks a forbidden sessions_spawn as a model-visible failure", async () => {
     setActivePluginRegistry(createEmptyPluginRegistry());
 

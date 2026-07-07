@@ -4,14 +4,20 @@
     "chat.commentaryToggle",
     "chat.pairingQrExpired.badge",
     "chat.pairingQrExpired.reason",
-    "chat.pairingQrExpired.title"
+    "chat.pairingQrExpired.title",
+    "chat.selectors.copySessionKey",
+    "chat.selectors.copySessionKeyFailed",
+    "chat.selectors.moreSessionActions",
+    "chat.selectors.pinSession",
+    "chat.selectors.sessionContext",
+    "chat.selectors.unpinSession"
   ],
-  "generatedAt": "2026-07-01T10:12:09.276Z",
+  "generatedAt": "2026-07-07T03:25:48.228Z",
   "locale": "hi",
   "model": "gpt-5.5",
   "provider": "openai",
-  "sourceHash": "234bc2c00f309d086f9b545f11736fafab8d3f127c441d839695beeee014a53d",
-  "totalKeys": 1421,
-  "translatedKeys": 1416,
+  "sourceHash": "4c8eba966e023a969a0c53daf0de0d715b47733cecbdb5d523c718d96b97d793",
+  "totalKeys": 1428,
+  "translatedKeys": 1417,
   "workflow": 1
 }

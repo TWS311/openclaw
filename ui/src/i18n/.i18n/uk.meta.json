@@ -1,11 +1,19 @@
 {
-  "fallbackKeys": [],
-  "generatedAt": "2026-07-01T10:32:49.588Z",
+  "fallbackKeys": [
+    "chat.selectors.allAgents",
+    "chat.selectors.copySessionKey",
+    "chat.selectors.copySessionKeyFailed",
+    "chat.selectors.moreSessionActions",
+    "chat.selectors.pinSession",
+    "chat.selectors.sessionContext",
+    "chat.selectors.unpinSession"
+  ],
+  "generatedAt": "2026-07-07T03:25:48.821Z",
   "locale": "uk",
   "model": "claude-opus-4-8",
   "provider": "anthropic",
-  "sourceHash": "234bc2c00f309d086f9b545f11736fafab8d3f127c441d839695beeee014a53d",
-  "totalKeys": 1421,
+  "sourceHash": "4c8eba966e023a969a0c53daf0de0d715b47733cecbdb5d523c718d96b97d793",
+  "totalKeys": 1428,
   "translatedKeys": 1421,
   "workflow": 1
 }
