@@ -71,6 +71,16 @@ const SessionsSendToolSchema = Type.Object({
 type GatewayCaller = typeof callGateway;
 const SESSIONS_SEND_REPLY_HISTORY_LIMIT = 50;
 const SESSIONS_SEND_MESSAGE_ALIASES = ["SendMessage", "content", "text"] as const;
+const FORGE_ORCHESTRATOR_AGENT_ID = "forge-orchestrator";
+const FORGE_HANDOFF_TIMEOUT_SECONDS = 30;
+const FORGE_PERMANENT_AGENT_IDS = new Set([
+  "forge-implementation-engineer",
+  "forge-code-reviewer",
+  "forge-quality-engineer",
+  "forge-security-engineer",
+  "forge-release-manager",
+  "forge-technical-lead",
+]);
 
 function normalizeSessionsSendArguments(args: unknown): Record<string, unknown> {
   const params =
@@ -124,6 +134,83 @@ function isConfiguredAgentMainSessionKey(params: {
       mainKey: params.mainKey,
     })
   );
+}
+
+function isForgePermanentAgentId(agentId: string | undefined): boolean {
+  const normalized = normalizeOptionalString(agentId);
+  return Boolean(normalized && FORGE_PERMANENT_AGENT_IDS.has(normalizeAgentId(normalized)));
+}
+
+function isForgeProjectScopedSessionKey(params: {
+  sessionKey: string | undefined;
+  targetAgentId: string;
+}): boolean {
+  const parsed = parseAgentSessionKey(normalizeOptionalString(params.sessionKey));
+  if (!parsed || parsed.agentId !== normalizeAgentId(params.targetAgentId)) {
+    return false;
+  }
+  const parts = parsed.rest.split(":");
+  return (
+    parts.length === 9 &&
+    parts[0] === "forge" &&
+    parts[1] === "project" &&
+    Boolean(parts[2]) &&
+    parts[3] === "task" &&
+    Boolean(parts[4]) &&
+    parts[5] === "stage" &&
+    Boolean(parts[6]) &&
+    parts[7] === "run" &&
+    Boolean(parts[8])
+  );
+}
+
+function validateForgeRuntimeHandoff(params: {
+  requesterSessionKey: string;
+  targetAgentId?: string;
+  explicitSessionKey?: string;
+  timeoutSeconds: number;
+}):
+  | { ok: true; timeoutSeconds: number }
+  | { ok: false; error: string; timeoutSeconds: number } {
+  const requesterAgentId = resolveAgentIdFromSessionKey(params.requesterSessionKey);
+  const targetAgentId = params.targetAgentId ? normalizeAgentId(params.targetAgentId) : undefined;
+  if (
+    requesterAgentId !== FORGE_ORCHESTRATOR_AGENT_ID ||
+    !targetAgentId ||
+    !isForgePermanentAgentId(targetAgentId)
+  ) {
+    return { ok: true, timeoutSeconds: params.timeoutSeconds };
+  }
+
+  const cappedTimeoutSeconds = Math.min(params.timeoutSeconds, FORGE_HANDOFF_TIMEOUT_SECONDS);
+  const sessionKey = normalizeOptionalString(params.explicitSessionKey);
+  const requiredShape =
+    `agent:${targetAgentId}:forge:project:<project>:task:<task>:stage:<stage>:run:<run>`;
+  if (!sessionKey) {
+    return {
+      ok: false,
+      timeoutSeconds: cappedTimeoutSeconds,
+      error:
+        `Forge handoff from ${FORGE_ORCHESTRATOR_AGENT_ID} to ${targetAgentId} requires an explicit project-scoped sessionKey (${requiredShape}). Use forge_handoff/Forge runtime state instead of agentId or label routing.`,
+    };
+  }
+  if (sessionKey === `agent:${targetAgentId}:main`) {
+    return {
+      ok: false,
+      timeoutSeconds: cappedTimeoutSeconds,
+      error:
+        `Forge handoff blocked: ${FORGE_ORCHESTRATOR_AGENT_ID} cannot send work packets to permanent-agent main session ${sessionKey}. Required sessionKey shape: ${requiredShape}.`,
+    };
+  }
+  if (!isForgeProjectScopedSessionKey({ sessionKey, targetAgentId })) {
+    return {
+      ok: false,
+      timeoutSeconds: cappedTimeoutSeconds,
+      error:
+        `Forge handoff blocked: sessionKey must be project-scoped for ${targetAgentId}. Required shape: ${requiredShape}.`,
+    };
+  }
+  return { ok: true, timeoutSeconds: cappedTimeoutSeconds };
 }
 
 async function ensureConfiguredAgentMainSession(params: {
@@ -358,7 +445,7 @@ export function createSessionsSendTool(opts?: {
       const params = normalizeSessionsSendArguments(args);
       const gatewayCall = opts?.callGateway ?? callGateway;
       const message = readStringParam(params, "message", { required: true });
-      const timeoutSeconds = readNonNegativeIntegerParam(params, "timeoutSeconds") ?? 30;
+      let timeoutSeconds = readNonNegativeIntegerParam(params, "timeoutSeconds") ?? 30;
       const { cfg, mainKey, alias, effectiveRequesterKey, restrictToSpawned } =
         resolveSessionToolContext(opts);
 
@@ -371,6 +458,24 @@ export function createSessionsSendTool(opts?: {
       const sessionKeyParam = readStringParam(params, "sessionKey");
       const labelParam = normalizeOptionalString(readStringParam(params, "label"));
       const labelAgentIdParam = normalizeOptionalString(readStringParam(params, "agentId"));
+      const initialTargetAgentId =
+        labelAgentIdParam ??
+        (sessionKeyParam ? resolveAgentIdFromSessionKey(sessionKeyParam) : undefined);
+      const initialForgeGuard = validateForgeRuntimeHandoff({
+        requesterSessionKey: effectiveRequesterKey,
+        targetAgentId: initialTargetAgentId,
+        explicitSessionKey: sessionKeyParam,
+        timeoutSeconds,
+      });
+      timeoutSeconds = initialForgeGuard.timeoutSeconds;
+      if (!initialForgeGuard.ok) {
+        return jsonResult({
+          runId: crypto.randomUUID(),
+          status: "error",
+          error: initialForgeGuard.error,
+          ...(sessionKeyParam ? { sessionKey: sessionKeyParam } : {}),
+        });
+      }
 
       let sessionKey = sessionKeyParam;
       if (!sessionKey && !labelParam && labelAgentIdParam) {
@@ -464,6 +569,25 @@ export function createSessionsSendTool(opts?: {
           });
         }
         sessionKey = resolvedKey;
+      }
+
+      const resolvedTargetAgentId = sessionKey
+        ? resolveAgentIdFromSessionKey(sessionKey)
+        : undefined;
+      const resolvedForgeGuard = validateForgeRuntimeHandoff({
+        requesterSessionKey: effectiveRequesterKey,
+        targetAgentId: resolvedTargetAgentId,
+        explicitSessionKey: sessionKeyParam,
+        timeoutSeconds,
+      });
+      timeoutSeconds = resolvedForgeGuard.timeoutSeconds;
+      if (!resolvedForgeGuard.ok) {
+        return jsonResult({
+          runId: crypto.randomUUID(),
+          status: "error",
+          error: resolvedForgeGuard.error,
+          ...(sessionKey ? { sessionKey } : {}),
+        });
       }
 
       if (!sessionKey) {

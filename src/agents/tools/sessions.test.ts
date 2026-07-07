@@ -45,6 +45,10 @@ let resolveAnnounceTarget: (typeof import("./sessions-announce-target.js"))["res
 let setActivePluginRegistry: (typeof import("../../plugins/runtime.js"))["setActivePluginRegistry"];
 const MAIN_AGENT_SESSION_KEY = "agent:main:main";
 const MAIN_AGENT_CHANNEL = "whatsapp";
+const FORGE_ORCHESTRATOR_SESSION_KEY = "agent:forge-orchestrator:main";
+const FORGE_IMPLEMENTATION_AGENT_ID = "forge-implementation-engineer";
+const FORGE_IMPLEMENTATION_STAGE_SESSION_KEY =
+  "agent:forge-implementation-engineer:forge:project:project-a:task:task-a:stage:implementation:run:run-a";
 const resolveSessionConversationStub: NonNullable<
   ChannelMessagingAdapter["resolveSessionConversation"]
 > = ({ rawId }) => ({
@@ -203,6 +207,32 @@ function createMainSessionsSendTool() {
   return createSessionsSendTool({
     agentSessionKey: MAIN_AGENT_SESSION_KEY,
     agentChannel: MAIN_AGENT_CHANNEL,
+  });
+}
+
+function createForgeOrchestratorSessionsSendTool() {
+  return createSessionsSendTool({
+    agentSessionKey: FORGE_ORCHESTRATOR_SESSION_KEY,
+    agentChannel: "internal",
+    callGateway: callGatewayMock,
+    config: {
+      session: { scope: "per-sender", mainKey: "main" },
+      agents: {
+        list: [
+          { id: "forge-orchestrator" },
+          { id: FORGE_IMPLEMENTATION_AGENT_ID },
+          { id: "forge-code-reviewer" },
+          { id: "forge-quality-engineer" },
+          { id: "forge-security-engineer" },
+          { id: "forge-release-manager" },
+          { id: "forge-technical-lead" },
+        ],
+      },
+      tools: {
+        agentToAgent: { enabled: true, allow: ["forge-*"] },
+        sessions: { visibility: "all" },
+      },
+    } as never,
   });
 }
 
@@ -842,6 +872,77 @@ describe("sessions_send gating", () => {
       }),
     ).rejects.toThrow("timeoutSeconds must be a non-negative integer");
     expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks Forge orchestrator handoff to a permanent agent when only agentId is provided", async () => {
+    const tool = createForgeOrchestratorSessionsSendTool();
+
+    const result = await tool.execute("call-forge-agentid-main", {
+      agentId: FORGE_IMPLEMENTATION_AGENT_ID,
+      message: "forge_work_packet:\n  task_id: task-a\n  stage_id: implementation",
+      timeoutSeconds: 90,
+    });
+
+    const details = requireDetails(result);
+    expect(details.status).toBe("error");
+    expect(String(details.error)).toContain("requires an explicit project-scoped sessionKey");
+    expect(String(details.error)).toContain(
+      "agent:forge-implementation-engineer:forge:project:<project>:task:<task>:stage:<stage>:run:<run>",
+    );
+    expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks Forge orchestrator handoff to a permanent-agent main session", async () => {
+    const tool = createForgeOrchestratorSessionsSendTool();
+
+    const result = await tool.execute("call-forge-explicit-main", {
+      sessionKey: "agent:forge-implementation-engineer:main",
+      message: "forge_work_packet:\n  task_id: task-a\n  stage_id: implementation",
+      timeoutSeconds: 90,
+    });
+
+    const details = requireDetails(result);
+    expect(details.status).toBe("error");
+    expect(details.sessionKey).toBe("agent:forge-implementation-engineer:main");
+    expect(String(details.error)).toContain("cannot send work packets to permanent-agent main session");
+    expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("allows Forge orchestrator handoff with a project-scoped sessionKey and caps wait timeout to 30 seconds", async () => {
+    callGatewayMock.mockImplementation(async (opts: unknown) => {
+      const request = opts as { method?: string; params?: Record<string, unknown> };
+      if (request.method === "sessions.list") {
+        return { path: "/tmp/sessions.json", sessions: [] };
+      }
+      if (request.method === "chat.history") {
+        return { messages: [] };
+      }
+      if (request.method === "agent") {
+        return { runId: "run-forge-handoff", acceptedAt: 123 };
+      }
+      if (request.method === "agent.wait") {
+        return { status: "timeout" };
+      }
+      return {};
+    });
+    const tool = createForgeOrchestratorSessionsSendTool();
+
+    const result = await tool.execute("call-forge-project-scoped", {
+      sessionKey: FORGE_IMPLEMENTATION_STAGE_SESSION_KEY,
+      message: "forge_work_packet:\n  task_id: task-a\n  stage_id: implementation",
+      timeoutSeconds: 90,
+    });
+
+    const details = requireDetails(result);
+    expect(details).toMatchObject({
+      status: "accepted",
+      sessionKey: FORGE_IMPLEMENTATION_STAGE_SESSION_KEY,
+    });
+    const waitRequest = callGatewayMock.mock.calls
+      .map((call) => call[0] as { method?: string; params?: Record<string, unknown>; timeoutMs?: number })
+      .find((request) => request.method === "agent.wait");
+    expect(waitRequest?.params?.timeoutMs).toBe(30_000);
+    expect(waitRequest?.timeoutMs).toBe(32_000);
   });
 
   it("returns an error when label resolution fails", async () => {
