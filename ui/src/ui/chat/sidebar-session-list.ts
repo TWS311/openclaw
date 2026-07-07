@@ -8,7 +8,7 @@ import {
 } from "../app-chat.ts";
 import type { AppViewState } from "../app-view-state.ts";
 import { deleteSessionsAndRefresh } from "../controllers/sessions.ts";
-import { formatRelativeTimestamp, formatTokens } from "../format.ts";
+import { formatRelativeTimestamp } from "../format.ts";
 import { icons } from "../icons.ts";
 import { pathForTab } from "../navigation.ts";
 import { resolveSessionDisplayName, isCronSessionKey } from "../session-display.ts";
@@ -27,10 +27,7 @@ import {
 import { normalizeOptionalString } from "../string-coerce.ts";
 import type { GatewaySessionRow, SessionsListResult } from "../types.ts";
 import { copyToClipboard } from "./clipboard.ts";
-import {
-  renderChatSessionSelect,
-  resolveChatAgentFilterOptions,
-} from "./session-controls.ts";
+import { renderChatSessionSelect } from "./session-controls.ts";
 
 type SidebarSessionSwitchHandler = (state: AppViewState, nextSessionKey: string) => void;
 
@@ -46,14 +43,15 @@ export type SidebarSessionListEntry = {
   agentLabel: string;
   label: string;
   meta: string;
-  modelLabel: string;
   pinned: boolean;
   row: GatewaySessionRow;
-  tokenLabel: string | null;
+  running: boolean;
 };
 
 const SIDEBAR_SESSION_SEARCH_DEBOUNCE_MS = 300;
 const SIDEBAR_ALL_AGENTS_FILTER_ID = "__all__";
+const SIDEBAR_ALL_SESSIONS_TAB: SidebarSessionListTab = "recent";
+const SIDEBAR_RUNNING_SESSIONS_TAB: SidebarSessionListTab = "archived";
 const sidebarSessionListControllers = new WeakMap<
   AppViewState,
   SidebarSessionListController
@@ -179,7 +177,6 @@ function appendSidebarSessionListResult(
 }
 
 function createSidebarSessionListRequestParams(
-  state: AppViewState,
   options: {
     agentFilterId: string;
     offset?: number;
@@ -188,7 +185,7 @@ function createSidebarSessionListRequestParams(
   },
 ): Record<string, unknown> {
   const overrides = createChatSessionsLoadOverrides(
-    { sessionsShowArchived: options.tab === "archived" },
+    { sessionsShowArchived: false },
     { offset: options.offset, search: options.query },
   );
   const params: Record<string, unknown> = {
@@ -257,7 +254,7 @@ export async function loadSidebarSessionList(
   try {
     const page = await state.client.request<SessionsListResult>(
       "sessions.list",
-      createSidebarSessionListRequestParams(state, {
+      createSidebarSessionListRequestParams({
         agentFilterId,
         offset: options.offset,
         query,
@@ -335,10 +332,6 @@ export function selectSidebarSessionAgentFilter(state: AppViewState, agentFilter
   clearSidebarSessionRemoteResult(state);
   void loadSidebarSessionList(state, { agentFilterId: next });
   requestHostUpdate(state);
-}
-
-export function toggleSidebarSessionActiveOnly(state: AppViewState, activeOnly: boolean) {
-  state.applySettings({ ...state.settings, sidebarSessionActiveOnly: activeOnly });
 }
 
 export function toggleSidebarPinnedSession(state: AppViewState, sessionKey: string) {
@@ -447,7 +440,7 @@ function isSidebarSessionForSelectedAgent(
   return isSessionKeyTiedToAgent(row.key, agentFilterId, resolveUiDefaultAgentId(state));
 }
 
-function isEligibleSidebarSessionRow(
+function isBaseSidebarSessionRow(
   state: AppViewState,
   row: GatewaySessionRow,
   agentFilterId: string,
@@ -464,6 +457,10 @@ function isEligibleSidebarSessionRow(
   );
 }
 
+function isSidebarRunningSessionRow(row: GatewaySessionRow): boolean {
+  return row.hasActiveRun === true || row.hasActiveSubagentRun === true;
+}
+
 function sidebarResultMatchesCurrentFilter(state: AppViewState): boolean {
   return (
     Boolean(state.sidebarSessionListResult) &&
@@ -476,9 +473,6 @@ function shouldUseSidebarResult(state: AppViewState): boolean {
     return false;
   }
   const query = normalizeOptionalString(state.sidebarSessionSearchQuery) ?? "";
-  if (resolveSidebarSessionListTab(state) === "archived") {
-    return true;
-  }
   if (query) {
     return state.sidebarSessionSearchAppliedQuery === query;
   }
@@ -517,32 +511,20 @@ function formatSidebarAgentLabel(state: AppViewState, row: GatewaySessionRow): s
   return name && name !== agentId ? `${name}` : agentId;
 }
 
-function formatSidebarModelLabel(row: GatewaySessionRow): string {
-  return [normalizeOptionalString(row.modelProvider), normalizeOptionalString(row.model)]
-    .filter(Boolean)
-    .join("/");
-}
-
 function toSidebarSessionEntry(
   state: AppViewState,
   row: GatewaySessionRow,
 ): SidebarSessionListEntry {
   const label = resolveSessionDisplayName(row.key, row);
   const updated = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : t("common.na");
-  const modelLabel = formatSidebarModelLabel(row);
-  const tokenLabel =
-    typeof row.totalTokens === "number" && Number.isFinite(row.totalTokens)
-      ? formatTokens(row.totalTokens, "")
-      : null;
   return {
     active: areUiSessionKeysEquivalent(row.key, state.sessionKey),
     agentLabel: formatSidebarAgentLabel(state, row),
     label,
     meta: updated,
-    modelLabel,
     pinned: resolvePinnedSessionKeys(state).includes(row.key),
     row,
-    tokenLabel,
+    running: isSidebarRunningSessionRow(row),
   };
 }
 
@@ -564,18 +546,13 @@ export function resolveSidebarSessionListEntries(
       .map((key) => knownRowsByKey.get(key))
       .filter((row): row is GatewaySessionRow => Boolean(row))
       .filter((row) => !queryRows || queryRows.has(row.key))
-      .filter((row) => isSidebarSessionForSelectedAgent(state, row, agentFilterId));
-  } else if (tab === "archived") {
-    rows = sourceRows.filter(
-      (row) =>
-        row.archived === true && isSidebarSessionForSelectedAgent(state, row, agentFilterId),
-    );
+      .filter((row) => isBaseSidebarSessionRow(state, row, agentFilterId));
+  } else if (tab === SIDEBAR_RUNNING_SESSIONS_TAB) {
+    rows = sourceRows
+      .filter((row) => isBaseSidebarSessionRow(state, row, agentFilterId))
+      .filter(isSidebarRunningSessionRow);
   } else {
-    rows = sourceRows.filter((row) => isEligibleSidebarSessionRow(state, row, agentFilterId));
-  }
-
-  if (state.settings.sidebarSessionActiveOnly === true) {
-    rows = rows.filter((row) => row.hasActiveRun || row.hasActiveSubagentRun);
+    rows = sourceRows.filter((row) => isBaseSidebarSessionRow(state, row, agentFilterId));
   }
 
   return rows
@@ -619,15 +596,54 @@ function renderSidebarTabButton(state: AppViewState, tab: SidebarSessionListTab,
   `;
 }
 
+function resolveSidebarAgentName(state: AppViewState, agentIdRaw: string): string {
+  const normalized = normalizeAgentId(agentIdRaw);
+  const agent = (state.agentsList?.agents ?? []).find(
+    (entry) => normalizeAgentId(entry.id) === normalized,
+  );
+  return (
+    normalizeOptionalString(agent?.identity?.name) ??
+    normalizeOptionalString(agent?.name) ??
+    normalized
+  );
+}
+
+function resolveSidebarAgentFilterOptions(state: AppViewState): Array<{ id: string; label: string }> {
+  const seen = new Set<string>();
+  const options: Array<{ id: string; label: string }> = [];
+  const add = (agentId: string | null | undefined) => {
+    const raw = normalizeOptionalString(agentId);
+    if (!raw) {
+      return;
+    }
+    const normalized = normalizeAgentId(raw);
+    if (seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    options.push({ id: normalized, label: resolveSidebarAgentName(state, normalized) });
+  };
+
+  add(resolveSidebarSelectedAgentId(state));
+  add(state.agentsList?.defaultId ?? "main");
+  for (const agent of state.agentsList?.agents ?? []) {
+    add(agent.id);
+  }
+  for (const row of state.sessionsResult?.sessions ?? []) {
+    add(parseAgentSessionKey(row.key)?.agentId);
+  }
+
+  return options;
+}
+
 function renderSidebarAgentFilter(state: AppViewState, controlsDisabled: boolean) {
   const activeAgentFilterId = resolveSidebarAgentFilterId(state);
   const agentOptions = [
     { id: SIDEBAR_ALL_AGENTS_FILTER_ID, label: t("chat.selectors.allAgents") },
-    ...resolveChatAgentFilterOptions(state),
+    ...resolveSidebarAgentFilterOptions(state),
   ];
   return html`
     <label class="sidebar-session-agent-filter">
-      <span class="sidebar-session-agent-filter__icon" aria-hidden="true">${icons.brain}</span>
       <select
         class="sidebar-session-agent-filter__select"
         aria-label=${t("chat.selectors.agentFilter")}
@@ -661,6 +677,14 @@ function renderSidebarSessionRow(
 ) {
   const { row } = entry;
   const href = `${pathForTab("chat", state.basePath)}?session=${encodeURIComponent(row.key)}`;
+  const rowClasses = [
+    "sidebar-session-row",
+    entry.active ? "sidebar-session-row--active" : "",
+    entry.running ? "sidebar-session-row--running" : "",
+    entry.pinned ? "sidebar-session-row--pinned" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   const switchToSession = () => {
     if (!areUiSessionKeysEquivalent(row.key, state.sessionKey)) {
       onSwitchSession(state, row.key);
@@ -669,7 +693,7 @@ function renderSidebarSessionRow(
   };
   return html`
     <div
-      class="sidebar-session-row ${entry.active ? "sidebar-session-row--active" : ""}"
+      class=${rowClasses}
       data-session-key=${row.key}
       role="listitem"
     >
@@ -695,44 +719,10 @@ function renderSidebarSessionRow(
         <span class="sidebar-session-row__rail" aria-hidden="true"></span>
         <span class="sidebar-session-row__body">
           <span class="sidebar-session-row__title">${entry.label}</span>
-          <span class="sidebar-session-row__meta">
-            <span>${entry.agentLabel}</span>
-            <span aria-hidden="true">·</span>
-            <span>${entry.meta}</span>
-          </span>
-          ${entry.modelLabel
-            ? html`<span class="sidebar-session-row__model">${entry.modelLabel}</span>`
-            : nothing}
+          <span class="sidebar-session-row__agent">${entry.agentLabel}</span>
+          <span class="sidebar-session-row__time">${entry.meta}</span>
         </span>
       </a>
-      <span class="sidebar-session-row__badges">
-        ${entry.tokenLabel
-          ? html`<span class="sidebar-session-row__chip">${entry.tokenLabel}</span>`
-          : nothing}
-        ${row.hasActiveRun || row.hasActiveSubagentRun
-          ? html`<span
-              class="sidebar-session-row__live"
-              aria-label=${t("sessionsView.activeRun")}
-            ></span>`
-          : nothing}
-      </span>
-      <button
-        class="sidebar-session-row__icon-btn ${entry.pinned
-          ? "sidebar-session-row__icon-btn--active"
-          : ""}"
-        type="button"
-        title=${entry.pinned ? t("chat.selectors.unpinSession") : t("chat.selectors.pinSession")}
-        aria-label=${entry.pinned
-          ? t("chat.selectors.unpinSession")
-          : t("chat.selectors.pinSession")}
-        @click=${(event: MouseEvent) => {
-          event.preventDefault();
-          event.stopPropagation();
-          toggleSidebarPinnedSession(state, row.key);
-        }}
-      >
-        ${entry.pinned ? icons.pinOff : icons.pin}
-      </button>
       <details class="sidebar-session-menu">
         <summary
           class="sidebar-session-row__icon-btn sidebar-session-menu__trigger"
@@ -831,7 +821,6 @@ function renderExpandedSidebarSessionList(
   const pagingResult = state.sidebarSessionListResult ?? state.sessionsResult;
   const loadMoreOffset = resolveNextSidebarSessionOffset(pagingResult);
   const controlsDisabled = !state.connected || !state.client;
-  const activeOnly = state.settings.sidebarSessionActiveOnly === true;
 
   return html`
     <section class="sidebar-sessions sidebar-sessions--expanded">
@@ -869,30 +858,9 @@ function renderExpandedSidebarSessionList(
       </div>
 
       <div class="sidebar-session-tabs" role="tablist" aria-label=${t("chat.selectors.session")}>
-        ${renderSidebarTabButton(state, "recent", t("usage.sessions.recentShort"))}
+        ${renderSidebarTabButton(state, SIDEBAR_RUNNING_SESSIONS_TAB, t("sessionsView.statusRunning"))}
         ${renderSidebarTabButton(state, "pinned", t("usage.filters.pinned"))}
-        ${renderSidebarTabButton(state, "archived", t("sessionsView.archived"))}
-      </div>
-
-      <div class="sidebar-session-toolbar">
-        <button
-          class="sidebar-session-chip ${!activeOnly ? "sidebar-session-chip--active" : ""}"
-          type="button"
-          @click=${() => toggleSidebarSessionActiveOnly(state, false)}
-        >
-          ${t("usage.sessions.all")}
-        </button>
-        <button
-          class="sidebar-session-chip ${activeOnly ? "sidebar-session-chip--active" : ""}"
-          type="button"
-          @click=${() => toggleSidebarSessionActiveOnly(state, true)}
-        >
-          ${t("sessionsView.activeRun")}
-        </button>
-        <span class="sidebar-session-sort" aria-label=${t("usage.sessions.sort")}>
-          ${icons.arrowUpDown}
-          <span>${t("usage.sessions.recentShort")}</span>
-        </span>
+        ${renderSidebarTabButton(state, SIDEBAR_ALL_SESSIONS_TAB, t("usage.sessions.all"))}
       </div>
 
       ${state.sidebarSessionListError

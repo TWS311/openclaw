@@ -70,7 +70,7 @@ function createState(overrides: Partial<AppViewState> = {}): AppViewState {
       navCollapsed: false,
       navGroupsCollapsed: {},
       sidebarPinnedSessionKeys: [],
-      sidebarSessionListTab: "recent",
+      sidebarSessionListTab: "archived",
       sidebarSessionActiveOnly: false,
       borderRadius: 50,
       textScale: 100,
@@ -587,6 +587,10 @@ describe("renderApp assistant avatar routing", () => {
           tab: "chat",
           sessionKey: "agent:work:main",
           sidebarSessionAgentFilterId: "work",
+          settings: {
+            ...createState().settings,
+            sidebarSessionListTab: "recent",
+          },
           assistantAgentId: "work",
           agentsList: {
             defaultId: "main",
@@ -641,6 +645,10 @@ describe("renderApp assistant avatar routing", () => {
           tab: "chat",
           sessionKey: "main",
           sidebarSessionAgentFilterId: "main",
+          settings: {
+            ...createState().settings,
+            sidebarSessionListTab: "recent",
+          },
           assistantAgentId: "work",
           agentsList: {
             defaultId: "main",
@@ -695,6 +703,10 @@ describe("renderApp assistant avatar routing", () => {
           tab: "chat",
           sessionKey: "global",
           sidebarSessionAgentFilterId: "ops",
+          settings: {
+            ...createState().settings,
+            sidebarSessionListTab: "recent",
+          },
           assistantAgentId: null,
           agentsList: null,
           hello: {
@@ -743,6 +755,10 @@ describe("renderApp assistant avatar routing", () => {
         createState({
           tab: "chat",
           sessionKey: "unknown",
+          settings: {
+            ...createState().settings,
+            sidebarSessionListTab: "recent",
+          },
           assistantAgentId: "work",
           agentsList: {
             defaultId: "main",

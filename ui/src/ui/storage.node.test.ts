@@ -148,7 +148,7 @@ describe("loadSettings default gateway URL derivation", () => {
       navGroupsCollapsed: {},
       recentSessionsCollapsed: false,
       sidebarPinnedSessionKeys: [],
-      sidebarSessionListTab: "recent",
+      sidebarSessionListTab: "archived",
       sidebarSessionActiveOnly: false,
       borderRadius: 50,
       textScale: 100,
@@ -283,7 +283,7 @@ describe("loadSettings default gateway URL derivation", () => {
       navGroupsCollapsed: {},
       recentSessionsCollapsed: false,
       sidebarPinnedSessionKeys: [],
-      sidebarSessionListTab: "recent",
+      sidebarSessionListTab: "archived",
       sidebarSessionActiveOnly: false,
       borderRadius: 50,
       textScale: 100,
@@ -430,7 +430,7 @@ describe("loadSettings default gateway URL derivation", () => {
 
     const settings = loadSettings();
     expect(settings.sidebarPinnedSessionKeys).toEqual(["agent:main:alpha"]);
-    expect(settings.sidebarSessionListTab).toBe("recent");
+    expect(settings.sidebarSessionListTab).toBe("archived");
     expect(settings.sidebarSessionActiveOnly).toBe(false);
   });
 

@@ -56,7 +56,7 @@ export function normalizeChatAutoScrollMode(value: unknown): ChatAutoScrollMode 
 export function normalizeSidebarSessionListTab(value: unknown): SidebarSessionListTab {
   return SIDEBAR_SESSION_LIST_TABS.includes(value as SidebarSessionListTab)
     ? (value as SidebarSessionListTab)
-    : "recent";
+    : "archived";
 }
 
 function normalizeSidebarPinnedSessionKeys(value: unknown): string[] {
@@ -287,7 +287,7 @@ export function loadSettings(): UiSettings {
     navGroupsCollapsed: {},
     recentSessionsCollapsed: false,
     sidebarPinnedSessionKeys: [],
-    sidebarSessionListTab: "recent",
+    sidebarSessionListTab: "archived",
     sidebarSessionActiveOnly: false,
     borderRadius: 50,
     textScale: 100,

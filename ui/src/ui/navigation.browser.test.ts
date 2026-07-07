@@ -489,9 +489,13 @@ describe("control UI routing", () => {
     ).toBe("false");
   });
 
-  it("shows recent sessions in the sidebar and switches through them", async () => {
+  it("shows all sessions in the sidebar and switches through them", async () => {
     const app = mountApp("/overview");
     app.sessionKey = "agent:main:second";
+    app.applySettings({
+      ...app.settings,
+      sidebarSessionListTab: "recent",
+    });
     app.sessionsResult = createSessionsResult([
       { key: "global", kind: "global", label: "Global", updatedAt: Date.now() },
       { key: "unknown", kind: "unknown", label: "Unknown", updatedAt: Date.now() - 10_000 },
@@ -512,7 +516,7 @@ describe("control UI routing", () => {
       ".sidebar-session-tabs__btn--active",
       HTMLButtonElement,
     );
-    expect(activeTab.textContent?.trim()).toBe("Recent");
+    expect(activeTab.textContent?.trim()).toBe("All");
 
     const rows = Array.from(app.querySelectorAll<HTMLElement>(".sidebar-session-row"));
     expect(
@@ -522,9 +526,14 @@ describe("control UI routing", () => {
     ).toEqual(["Second workspace", "First workspace"]);
     expect(
       rows.map((row) =>
-        row.querySelector(".sidebar-session-row__meta")?.textContent?.replace(/\s+/g, " ").trim(),
+        row.querySelector(".sidebar-session-row__agent")?.textContent?.replace(/\s+/g, " ").trim(),
       ),
-    ).toEqual(["main · just now", "main · 5m ago"]);
+    ).toEqual(["main", "main"]);
+    expect(
+      rows.map((row) =>
+        row.querySelector(".sidebar-session-row__time")?.textContent?.replace(/\s+/g, " ").trim(),
+      ),
+    ).toEqual(["just now", "5m ago"]);
 
     rows[1]
       ?.querySelector<HTMLAnchorElement>(".sidebar-session-row__link")

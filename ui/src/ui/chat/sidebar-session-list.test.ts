@@ -48,7 +48,7 @@ function createState(overrides: Partial<AppViewState> = {}): AppViewState {
       navGroupsCollapsed: {},
       recentSessionsCollapsed: false,
       sidebarPinnedSessionKeys: [],
-      sidebarSessionListTab: "recent",
+      sidebarSessionListTab: "archived",
       sidebarSessionActiveOnly: false,
       borderRadius: 50,
       textScale: 100,
@@ -105,10 +105,14 @@ function createState(overrides: Partial<AppViewState> = {}): AppViewState {
 }
 
 describe("sidebar session list", () => {
-  it("filters recent sessions to the selected agent and excludes non-chat rows", () => {
+  it("filters all sessions to the selected agent and excludes non-chat rows", () => {
     const state = createState({
       sessionKey: "agent:main:current",
       sidebarSessionAgentFilterId: "main",
+      settings: {
+        ...createState().settings,
+        sidebarSessionListTab: "recent",
+      },
       sessionsResult: sessions([
         row({ key: "global", kind: "global", label: "Global", updatedAt: 70 }),
         row({ key: "unknown", kind: "unknown", label: "Unknown", updatedAt: 65 }),
@@ -134,6 +138,10 @@ describe("sidebar session list", () => {
 
   it("shows regular sessions across agents when the sidebar agent filter is all", () => {
     const state = createState({
+      settings: {
+        ...createState().settings,
+        sidebarSessionListTab: "recent",
+      },
       sessionsResult: sessions([
         row({ key: "agent:main:older", label: "Main older", updatedAt: 20 }),
         row({ key: "agent:ops:newer", label: "Ops newer", updatedAt: 40 }),
@@ -178,11 +186,11 @@ describe("sidebar session list", () => {
     );
   });
 
-  it("filters active-only rows using session active run flags", () => {
+  it("shows running tab rows using session active run flags", () => {
     const state = createState({
       settings: {
         ...createState().settings,
-        sidebarSessionActiveOnly: true,
+        sidebarSessionListTab: "archived",
       },
       sessionsResult: sessions([
         row({ key: "agent:main:idle", label: "Idle", updatedAt: 30 }),
@@ -219,45 +227,44 @@ describe("sidebar session list", () => {
     expect(container.textContent).not.toContain("0 shown");
   });
 
-  it("uses the archived request result without affecting the recent source list", () => {
+  it("uses the running tab without affecting the all sessions source list", () => {
     const state = createState({
       settings: {
         ...createState().settings,
         sidebarSessionListTab: "archived",
       },
-      sessionsResult: sessions([row({ key: "agent:main:recent", label: "Recent", updatedAt: 30 })]),
+      sessionsResult: sessions([
+        row({ key: "agent:main:idle", label: "Idle", updatedAt: 50 }),
+        row({ key: "agent:main:run", label: "Run", hasActiveRun: true, updatedAt: 30 }),
+      ]),
       sidebarSessionListResultAgentFilterId: "__all__",
       sidebarSessionListResult: sessions([
+        row({ key: "agent:main:idle-newer", label: "Idle newer", updatedAt: 40 }),
+        row({ key: "agent:main:run-newer", label: "Run newer", hasActiveRun: true, updatedAt: 35 }),
         row({
-          key: "agent:main:archived-newer",
-          label: "Archived newer",
-          archived: true,
-          updatedAt: 40,
-        }),
-        row({ key: "agent:main:live", label: "Live", archived: false, updatedAt: 35 }),
-        row({
-          key: "agent:main:archived-older",
-          label: "Archived older",
-          archived: true,
+          key: "agent:main:run-older",
+          label: "Run older",
+          hasActiveSubagentRun: true,
           updatedAt: 20,
         }),
       ]),
     });
 
     expect(resolveSidebarSessionListEntries(state).map((entry) => entry.label)).toEqual([
-      "Archived newer",
-      "Archived older",
+      "Run newer",
+      "Run older",
     ]);
 
     selectSidebarSessionListTab(state, "recent");
     expect(resolveSidebarSessionListEntries(state).map((entry) => entry.label)).toEqual([
-      "Recent",
+      "Idle",
+      "Run",
     ]);
   });
 
-  it("loads archived search results through sessions.list and keeps search transient", async () => {
+  it("loads running search results through sessions.list and keeps search transient", async () => {
     const request = vi.fn(async () =>
-      sessions([row({ key: "agent:main:archived", label: "Archived", archived: true })]),
+      sessions([row({ key: "agent:main:running", label: "Running", hasActiveRun: true })]),
     );
     const state = createState({
       settings: {
@@ -281,9 +288,39 @@ describe("sidebar session list", () => {
     );
     expect(request.mock.calls[0]?.[1]).not.toHaveProperty("agentId");
     expect(request.mock.calls[0]?.[1]).not.toHaveProperty("activeMinutes");
+    expect(request.mock.calls[0]?.[1]).not.toHaveProperty("showArchived");
     expect(state.sidebarSessionSearchAppliedQuery).toBe("release");
     expect(state.sidebarSessionListResultAgentFilterId).toBe("__all__");
     expect(state.settings.sidebarSessionListTab).toBe("archived");
+  });
+
+  it("renders agent filter options as plain agent names without a leading icon", () => {
+    const state = createState({
+      agentsList: {
+        defaultId: "main",
+        agents: [
+          { id: "main", name: "Main Agent" },
+          { id: "ops", identity: { name: "Operations" }, name: "Ops" },
+        ],
+      } as AppViewState["agentsList"],
+    });
+    const container = document.createElement("div");
+
+    render(
+      renderSidebarSessionList(state, {
+        collapsed: false,
+        onNewSession: () => undefined,
+        onSwitchSession: vi.fn(),
+      }),
+      container,
+    );
+
+    expect(container.querySelector(".sidebar-session-agent-filter__icon")).toBeNull();
+    expect(
+      Array.from(container.querySelectorAll<HTMLOptionElement>("option")).map((option) =>
+        option.textContent?.trim(),
+      ),
+    ).toEqual(["All agents", "Main Agent", "Operations"]);
   });
 
   it("loads sidebar rows with the selected agent filter when requested", async () => {
@@ -317,6 +354,10 @@ describe("sidebar session list", () => {
     });
     const state = createState({
       client: { request } as unknown as AppViewState["client"],
+      settings: {
+        ...createState().settings,
+        sidebarSessionListTab: "recent",
+      },
       sessionsResult: sessions([row({ key: "agent:main:alpha", label: "Alpha" })]),
     });
     const container = document.createElement("div");
@@ -349,6 +390,7 @@ describe("sidebar session list", () => {
     );
     expect(buttons.map((button) => button.textContent?.trim())).toContain("Copy session key");
     expect(buttons.map((button) => button.textContent?.trim())).toContain("Delete");
+    expect(container.querySelector('button[title="Pin session"]')).toBeNull();
 
     buttons.find((button) => button.textContent?.includes("Copy session key"))?.click();
     expect(copySpy).toHaveBeenCalledWith("copy");
