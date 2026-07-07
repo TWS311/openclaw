@@ -5,6 +5,7 @@ import { formatRelativeTimestamp, parseSessionKeyParts } from "../format.ts";
 import { icons } from "../icons.ts";
 import { pathForTab } from "../navigation.ts";
 import { formatSessionTokens } from "../presenter.ts";
+import { resolveSessionDisplayName } from "../session-display.ts";
 import { formatGoalDetail, formatGoalSummary } from "../session-goal.ts";
 import { sessionModelMatchesDefaults } from "../session-model-defaults.ts";
 import { isSessionRunActive } from "../session-run-state.ts";
@@ -91,12 +92,53 @@ const VERBOSE_LEVEL_VALUES = ["", "off", "on", "full"] as const;
 const FAST_LEVEL_VALUES = ["", "auto", "on", "off"] as const;
 const REASONING_LEVELS = ["", "off", "on", "stream"] as const;
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+const DEFAULT_RECENT_ACTIVITY_MINUTES = 120;
+const MAX_SESSION_GOAL_LENGTH = 72;
+
+type SessionActivityLevel = "active" | "recent" | "normal";
 
 function getAgentIdentity(
   agentIdentityById: Record<string, AgentIdentityResult>,
   agentId: string,
 ): AgentIdentityResult | null {
   return Object.hasOwn(agentIdentityById, agentId) ? (agentIdentityById[agentId] ?? null) : null;
+}
+
+function resolveRecentActivityWindowMs(activeMinutes: string): number | null {
+  const trimmed = activeMinutes.trim();
+  if (!trimmed) {
+    return DEFAULT_RECENT_ACTIVITY_MINUTES * 60_000;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed * 60_000;
+}
+
+function isSessionRecentlyActive(
+  row: GatewaySessionRow,
+  nowMs: number,
+  recentWindowMs: number | null,
+): boolean {
+  if (!recentWindowMs || typeof row.updatedAt !== "number" || !Number.isFinite(row.updatedAt)) {
+    return false;
+  }
+  return nowMs - row.updatedAt <= recentWindowMs;
+}
+
+function resolveSessionActivityLevel(
+  row: GatewaySessionRow,
+  nowMs: number,
+  recentWindowMs: number | null,
+): SessionActivityLevel {
+  if (isSessionRunActive(row)) {
+    return "active";
+  }
+  if (isSessionRecentlyActive(row, nowMs, recentWindowMs)) {
+    return "recent";
+  }
+  return "normal";
 }
 
 function resolveThinkLevelOptions(
@@ -223,11 +265,49 @@ function renderSessionStatusBadge(row: GatewaySessionRow) {
   `;
 }
 
+function renderSessionRecentBadge(updated: string) {
+  const title = `${t("sessionsView.updated")}: ${updated}`;
+  return html`
+    <span class="session-status-recent" title=${title} aria-label=${title}>
+      <span class="session-status-recent__dot" aria-hidden="true"></span>
+      <span class="session-status-recent__label">${t("sessions.recentShort")}</span>
+    </span>
+  `;
+}
+
 function resolveThinkLevelPatchValue(value: string): string | null {
   if (!value) {
     return null;
   }
   return value;
+}
+
+function compactSessionGoal(objective: string | undefined | null): string | null {
+  const trimmed = normalizeOptionalString(objective);
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.length <= MAX_SESSION_GOAL_LENGTH) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, MAX_SESSION_GOAL_LENGTH - 1)}...`;
+}
+
+function resolveSessionListName(
+  row: GatewaySessionRow,
+): { primary: string; subtitle: string | null } {
+  const baseName = resolveSessionDisplayName(row.key, row);
+  const goal = compactSessionGoal(row.goal?.objective ?? null);
+  const normalizedLabel = normalizeOptionalString(row.label);
+  const hasCustomLabel = normalizedLabel !== null && normalizedLabel !== row.key;
+
+  if (!goal) {
+    return { primary: baseName, subtitle: null };
+  }
+  if (hasCustomLabel) {
+    return { primary: baseName, subtitle: goal };
+  }
+  return { primary: goal, subtitle: baseName === row.key ? null : baseName };
 }
 
 function filterRows(
@@ -458,6 +538,19 @@ function isRowControlTarget(target: EventTarget | null): boolean {
   );
 }
 
+function focusSessionLabelInput(rowRoot: Element | null): void {
+  const rowElement = rowRoot instanceof Element ? rowRoot.closest("tr") : null;
+  if (!(rowElement instanceof HTMLTableRowElement)) {
+    return;
+  }
+  const labelInput = rowElement.querySelector<HTMLInputElement>(".session-label-input");
+  if (!labelInput || labelInput.disabled) {
+    return;
+  }
+  labelInput.focus();
+  labelInput.select();
+}
+
 function renderFilterToggle(params: {
   name: string;
   checked: boolean;
@@ -493,6 +586,8 @@ export function renderSessions(props: SessionsProps) {
   const rawRows = props.result?.sessions ?? [];
   const filtered = filterRows(rawRows, props.searchQuery, props.agentIdentityById);
   const sorted = sortRows(filtered, props.sortColumn, props.sortDir);
+  const nowMs = Date.now();
+  const recentActivityWindowMs = resolveRecentActivityWindowMs(props.activeMinutes);
   const totalRows = sorted.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / props.pageSize));
   const page = Math.min(props.page, totalPages - 1);
@@ -748,8 +843,10 @@ export function renderSessions(props: SessionsProps) {
                           : t("sessionsView.noSessions")}
                       </td>
                     </tr>
-                  `
-                : paginated.flatMap((row) => renderRows(row, props))}
+                `
+                : paginated.flatMap((row) =>
+                    renderRows(row, props, nowMs, recentActivityWindowMs),
+                  )}
             </tbody>
           </table>
         </div>
@@ -788,7 +885,12 @@ export function renderSessions(props: SessionsProps) {
   `;
 }
 
-function renderRows(row: GatewaySessionRow, props: SessionsProps) {
+function renderRows(
+  row: GatewaySessionRow,
+  props: SessionsProps,
+  nowMs: number,
+  recentActivityWindowMs: number | null,
+) {
   const updated = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : t("common.na");
   const rawThinking = row.thinkingLevel ?? "";
   const thinking = rawThinking ? normalizeThinkingOptionValue(rawThinking) : "";
@@ -838,7 +940,21 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
     identityName && keyParts
       ? `${identityEmoji ? `${identityEmoji} ` : ""}${identityName} (${keyParts.channel})`
       : null;
-  const keyCellTitle = friendlyKeyLabel ?? row.key;
+  const listName = resolveSessionListName(row);
+  const keyCellTitle = [
+    listName.primary,
+    listName.subtitle,
+    friendlyKeyLabel,
+    row.key,
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .filter((value, index, items) => items.indexOf(value) === index)
+    .join(" · ");
+  const activityLevel = resolveSessionActivityLevel(
+    row,
+    nowMs,
+    recentActivityWindowMs,
+  );
   const canLink = row.kind !== "global";
   const captured = props.workboardSessionKeys?.has(row.key) === true;
   const captureBusy = props.workboardBusySessionKey === row.key;
@@ -859,6 +975,8 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
     "session-data-row",
     hasCheckpoints ? "session-data-row--expandable" : "",
     isExpanded ? "session-data-row--expanded" : "",
+    activityLevel === "active" ? "session-data-row--active" : "",
+    activityLevel === "recent" ? "session-data-row--recent" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -900,13 +1018,20 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
       </td>
       <td class="data-table-key-col">
         <div
-          class=${friendlyKeyLabel ? "session-key-cell" : "mono session-key-cell"}
+          class=${friendlyKeyLabel ? "session-key-cell session-key-cell--editable" : "mono session-key-cell session-key-cell--editable"}
           title=${keyCellTitle}
+          @click=${(e: MouseEvent) => {
+            if (isRowControlTarget(e.target)) {
+              return;
+            }
+            e.stopPropagation();
+            focusSessionLabelInput(e.currentTarget instanceof Element ? e.currentTarget : null);
+          }}
         >
           ${canLink
             ? html`<a
                 href=${chatUrl}
-                class="session-link"
+                class="session-link session-key-name-link"
                 @click=${(e: MouseEvent) => {
                   if (
                     e.defaultPrevented ||
@@ -915,28 +1040,31 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
                     e.ctrlKey ||
                     e.shiftKey ||
                     e.altKey
-                  ) {
-                    return;
-                  }
-                  if (props.onNavigateToChat) {
-                    e.preventDefault();
-                    props.onNavigateToChat(row.key);
-                  }
+              ) {
+                  return;
+                }
+                if (props.onNavigateToChat) {
+                  e.preventDefault();
+                  props.onNavigateToChat(row.key);
+                }
                 }}
-                >${friendlyKeyLabel ?? row.key}</a
+                >${friendlyKeyLabel ?? listName.primary}</a
               >`
-            : (friendlyKeyLabel ?? row.key)}
+            : html`<span class="session-key-name-link">${friendlyKeyLabel ?? listName.primary}</span>`}
           ${showDisplayName
             ? html`<span class="muted session-key-display-name">${displayName}</span>`
+            : nothing}
+          ${listName.subtitle
+            ? html`<span class="muted session-key-display-name">${listName.subtitle}</span>`
             : nothing}
         </div>
       </td>
       <td>
         <input
+          class="session-label-input"
           .value=${row.label ?? ""}
           ?disabled=${props.loading}
           placeholder=${t("sessionsView.optionalPlaceholder")}
-          style="width: 100%; max-width: 140px; padding: 6px 10px; font-size: 13px; border: 1px solid var(--border); border-radius: var(--radius-sm);"
           @change=${(e: Event) => {
             const value = normalizeOptionalString((e.target as HTMLInputElement).value) ?? null;
             props.onPatch(row.key, { label: value });
@@ -948,7 +1076,9 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
       </td>
       <td class="session-status-col">
         <div class="session-status-stack">
-          ${renderSessionStatusBadge(row)} ${renderSessionGoalChip(row.goal)}
+          ${renderSessionStatusBadge(row)}
+          ${activityLevel === "recent" ? renderSessionRecentBadge(updated) : nothing}
+          ${renderSessionGoalChip(row.goal)}
         </div>
       </td>
       <td class="session-runtime-cell">
@@ -1081,11 +1211,18 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
                     <div class="session-details-panel__eyebrow">
                       ${t("sessionsView.sessionDetails")}
                     </div>
-                    <div class="session-details-panel__title">${friendlyKeyLabel ?? row.key}</div>
+                    <div class="session-details-panel__title">
+                      ${friendlyKeyLabel ?? listName.primary}
+                    </div>
                     ${showDisplayName
                       ? html`
                           <div class="muted session-details-panel__subtitle">${displayName}</div>
                         `
+                      : nothing}
+                    ${listName.subtitle
+                      ? html`<div class="muted session-details-panel__subtitle">
+                          ${listName.subtitle}
+                        </div>`
                       : nothing}
                   </div>
                   <div class="session-details-panel__badges">
